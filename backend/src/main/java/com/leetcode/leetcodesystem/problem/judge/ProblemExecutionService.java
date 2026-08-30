@@ -1,5 +1,6 @@
 package com.leetcode.leetcodesystem.problem.judge;
 
+import com.leetcode.leetcodesystem.problem.persistence.SubmissionPersistenceService;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -7,13 +8,16 @@ public class ProblemExecutionService {
 
     private final ProblemJudgeDefinitionLoader definitionLoader;
     private final JavaRunner javaRunner;
+    private final SubmissionPersistenceService submissionPersistenceService;
 
     public ProblemExecutionService(
             ProblemJudgeDefinitionLoader definitionLoader,
-            JavaRunner javaRunner
+            JavaRunner javaRunner,
+            SubmissionPersistenceService submissionPersistenceService
     ) {
         this.definitionLoader = definitionLoader;
         this.javaRunner = javaRunner;
+        this.submissionPersistenceService = submissionPersistenceService;
     }
 
     public JudgeExecutionResult run(String problemId, String code) {
@@ -21,7 +25,9 @@ public class ProblemExecutionService {
     }
 
     public JudgeExecutionResult submit(String problemId, String code) {
-        return execute(problemId, code, true);
+        JudgeExecutionResult result = execute(problemId, code, true);
+        submissionPersistenceService.record(problemId, code, result);
+        return result;
     }
 
     private JudgeExecutionResult execute(String problemId, String code, boolean includeHidden) {

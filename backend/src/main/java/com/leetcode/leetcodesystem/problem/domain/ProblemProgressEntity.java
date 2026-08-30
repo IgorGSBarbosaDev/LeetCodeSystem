@@ -62,11 +62,36 @@ public class ProblemProgressEntity {
         return attempts;
     }
 
+    public Instant getFirstSolvedAt() {
+        return firstSolvedAt;
+    }
+
+    public Instant getLastAttemptAt() {
+        return lastAttemptAt;
+    }
+
     public boolean isFavorite() {
         return favorite;
     }
 
     public boolean isReviewRequired() {
         return reviewRequired;
+    }
+
+    public void recordSubmission(boolean accepted, Instant submittedAt) {
+        attempts++;
+        lastAttemptAt = submittedAt;
+
+        if (accepted) {
+            status = ProgressStatus.SOLVED;
+            if (firstSolvedAt == null) {
+                firstSolvedAt = submittedAt;
+            }
+            return;
+        }
+
+        if (status == ProgressStatus.NOT_STARTED || status == ProgressStatus.ATTEMPTED) {
+            status = ProgressStatus.ATTEMPTED;
+        }
     }
 }

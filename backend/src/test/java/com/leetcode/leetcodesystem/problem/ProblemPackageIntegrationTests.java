@@ -40,6 +40,7 @@ class ProblemPackageIntegrationTests {
 
     @BeforeEach
     void cleanProblems() {
+        jdbcTemplate.update("DELETE FROM submissions");
         jdbcTemplate.update("DELETE FROM problem_progress");
         jdbcTemplate.update("DELETE FROM problem_categories");
         jdbcTemplate.update("DELETE FROM test_cases");

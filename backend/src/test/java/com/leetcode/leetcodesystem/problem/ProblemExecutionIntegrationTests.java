@@ -1,6 +1,13 @@
 package com.leetcode.leetcodesystem.problem;
 
+import com.leetcode.leetcodesystem.problem.domain.SubmissionEntity;
+import com.leetcode.leetcodesystem.problem.domain.ProgressStatus;
+import com.leetcode.leetcodesystem.problem.judge.JudgeExecutionResult;
+import com.leetcode.leetcodesystem.problem.judge.JudgeStatus;
+import com.leetcode.leetcodesystem.problem.persistence.ProblemProgressRepository;
 import com.leetcode.leetcodesystem.problem.persistence.ProblemRepository;
+import com.leetcode.leetcodesystem.problem.persistence.SubmissionPersistenceService;
+import com.leetcode.leetcodesystem.problem.persistence.SubmissionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,7 +22,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -32,10 +41,21 @@ class ProblemExecutionIntegrationTests {
     private ProblemRepository problemRepository;
 
     @Autowired
+    private ProblemProgressRepository progressRepository;
+
+    @Autowired
+    private SubmissionRepository submissionRepository;
+
+    @Autowired
+    private SubmissionPersistenceService submissionPersistenceService;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void cleanProblems() {
+        jdbcTemplate.execute("DROP TRIGGER IF EXISTS fail_progress_update");
+        jdbcTemplate.update("DELETE FROM submissions");
         jdbcTemplate.update("DELETE FROM problem_progress");
         jdbcTemplate.update("DELETE FROM problem_categories");
         jdbcTemplate.update("DELETE FROM test_cases");
@@ -46,7 +66,7 @@ class ProblemExecutionIntegrationTests {
     }
 
     @Test
-    void runUsesOnlyPublicCasesAndSubmitRedactsHiddenValues() throws Exception {
+    void runUsesOnlyPublicCasesAndSubmitPersistsSubmissionAndProgress() throws Exception {
         importProblem();
         String code = "class Solution { public int solve(int value) { return value; } }";
 
@@ -59,6 +79,11 @@ class ProblemExecutionIntegrationTests {
                 .andExpect(jsonPath("$.totalTests").value(1))
                 .andExpect(jsonPath("$.testResults.length()").value(1))
                 .andExpect(jsonPath("$.testResults[0].input.value").value(1));
+
+        assertThat(submissionRepository.count()).isZero();
+        var initialProgress = progressRepository.findByProblemId("two-sum-001").orElseThrow();
+        assertThat(initialProgress.getAttempts()).isZero();
+        assertThat(initialProgress.getStatus()).isEqualTo(ProgressStatus.NOT_STARTED);
 
         mockMvc.perform(post("/api/problems/two-sum-001/submit")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -73,9 +98,95 @@ class ProblemExecutionIntegrationTests {
                 .andExpect(jsonPath("$.testResults[1].expectedOutput").doesNotExist())
                 .andExpect(jsonPath("$.testResults[1].actualOutput").doesNotExist());
 
-        assertThat(jdbcTemplate.queryForObject(
-                "SELECT attempts FROM problem_progress WHERE problem_id = 'two-sum-001'", Integer.class
-        )).isZero();
+        SubmissionEntity submission = submissionRepository.findAll().getFirst();
+        assertThat(submission.getProblem().getId()).isEqualTo("two-sum-001");
+        assertThat(submission.getCode()).isEqualTo(code);
+        assertThat(submission.getStatus()).isEqualTo(JudgeStatus.ACCEPTED);
+        assertThat(submission.getTestsPassed()).isEqualTo(2);
+        assertThat(submission.getTotalTests()).isEqualTo(2);
+        assertThat(submission.getExecutionTimeMs()).isGreaterThanOrEqualTo(0);
+        assertThat(submission.getSubmittedAt()).isNotNull();
+
+        var progress = progressRepository.findByProblemId("two-sum-001").orElseThrow();
+        assertThat(progress.getAttempts()).isEqualTo(1);
+        assertThat(progress.getStatus()).isEqualTo(ProgressStatus.SOLVED);
+        assertThat(progress.getFirstSolvedAt()).isNotNull();
+        assertThat(progress.getLastAttemptAt()).isEqualTo(progress.getFirstSolvedAt());
+
+        mockMvc.perform(get("/api/problems/two-sum-001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.progress.status").value("SOLVED"))
+                .andExpect(jsonPath("$.progress.attempts").value(1));
+    }
+
+    @Test
+    void failedSubmissionsAreRecordedAndDoNotRegressSolvedProgress() throws Exception {
+        importProblem();
+
+        String wrongCode = "class Solution { public int solve(int value) { return 0; } }";
+        execute(wrongCode).andExpect(jsonPath("$.status").value("WRONG_ANSWER"));
+
+        var attempted = progressRepository.findByProblemId("two-sum-001").orElseThrow();
+        assertThat(attempted.getAttempts()).isEqualTo(1);
+        assertThat(attempted.getStatus()).isEqualTo(ProgressStatus.ATTEMPTED);
+        assertThat(attempted.getFirstSolvedAt()).isNull();
+        assertThat(attempted.getLastAttemptAt()).isNotNull();
+
+        String acceptedCode = "class Solution { public int solve(int value) { return value; } }";
+        execute(acceptedCode).andExpect(jsonPath("$.status").value("ACCEPTED"));
+        var solved = progressRepository.findByProblemId("two-sum-001").orElseThrow();
+        var firstSolvedAt = solved.getFirstSolvedAt();
+        assertThat(solved.getAttempts()).isEqualTo(2);
+        assertThat(solved.getStatus()).isEqualTo(ProgressStatus.SOLVED);
+        assertThat(firstSolvedAt).isNotNull();
+
+        execute(wrongCode).andExpect(jsonPath("$.status").value("WRONG_ANSWER"));
+        var stillSolved = progressRepository.findByProblemId("two-sum-001").orElseThrow();
+        assertThat(stillSolved.getAttempts()).isEqualTo(3);
+        assertThat(stillSolved.getStatus()).isEqualTo(ProgressStatus.SOLVED);
+        assertThat(stillSolved.getFirstSolvedAt()).isEqualTo(firstSolvedAt);
+        assertThat(stillSolved.getLastAttemptAt()).isNotNull();
+        assertThat(submissionRepository.count()).isEqualTo(3);
+    }
+
+    @Test
+    void failedSubmissionPreservesReviewStatusAndFlag() throws Exception {
+        importProblem();
+        jdbcTemplate.update("UPDATE problem_progress SET status = 'REVIEW', review_required = 1 "
+                + "WHERE problem_id = 'two-sum-001'");
+
+        execute("class Solution { public int solve(int value) { return 0; } }")
+                .andExpect(jsonPath("$.status").value("WRONG_ANSWER"));
+
+        var progress = progressRepository.findByProblemId("two-sum-001").orElseThrow();
+        assertThat(progress.getAttempts()).isEqualTo(1);
+        assertThat(progress.getStatus()).isEqualTo(ProgressStatus.REVIEW);
+        assertThat(progress.isReviewRequired()).isTrue();
+    }
+
+    @Test
+    void persistenceRollsBackSubmissionWhenProgressUpdateFails() throws Exception {
+        importProblem();
+        jdbcTemplate.execute("CREATE TRIGGER fail_progress_update BEFORE UPDATE ON problem_progress "
+                + "BEGIN SELECT RAISE(ABORT, 'forced progress failure'); END");
+
+        JudgeExecutionResult result = new JudgeExecutionResult(
+                JudgeStatus.ACCEPTED,
+                1,
+                1,
+                12,
+                java.util.List.of(),
+                null,
+                null
+        );
+
+        assertThatThrownBy(() -> submissionPersistenceService.record("two-sum-001", "code", result))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThat(submissionRepository.count()).isZero();
+        var progress = progressRepository.findByProblemId("two-sum-001").orElseThrow();
+        assertThat(progress.getAttempts()).isZero();
+        assertThat(progress.getStatus()).isEqualTo(ProgressStatus.NOT_STARTED);
     }
 
     @Test
@@ -107,6 +218,16 @@ class ProblemExecutionIntegrationTests {
                 .andExpect(jsonPath("$.status").value("RUNTIME_ERROR"))
                 .andExpect(jsonPath("$.runtimeError").value("Ocorreu um erro de execução em um teste oculto."))
                 .andExpect(jsonPath("$.testResults[1].error").doesNotExist());
+
+        assertThat(submissionRepository.findAll())
+                .extracting(SubmissionEntity::getStatus)
+                .containsExactlyInAnyOrder(
+                        JudgeStatus.WRONG_ANSWER,
+                        JudgeStatus.COMPILATION_ERROR,
+                        JudgeStatus.RUNTIME_ERROR,
+                        JudgeStatus.TIME_LIMIT_EXCEEDED,
+                        JudgeStatus.RUNTIME_ERROR
+                );
     }
 
     private org.springframework.test.web.servlet.ResultActions execute(String code) throws Exception {

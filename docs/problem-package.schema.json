@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leetcodesystem.local/schema/problem-package-1.0.json",
+  "title": "LeetCodeSystem Problem Package",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "problems"],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "problems": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/problem"
+      }
+    }
+  },
+  "$defs": {
+    "category": {
+      "type": "string",
+      "enum": [
+        "ARRAY",
+        "STRING",
+        "HASH_TABLE",
+        "TWO_POINTERS",
+        "SLIDING_WINDOW",
+        "STACK",
+        "QUEUE",
+        "LINKED_LIST",
+        "BINARY_SEARCH",
+        "TREE",
+        "BINARY_TREE",
+        "BINARY_SEARCH_TREE",
+        "HEAP",
+        "GRAPH",
+        "BACKTRACKING",
+        "GREEDY",
+        "DYNAMIC_PROGRAMMING",
+        "RECURSION",
+        "SORTING",
+        "MATRIX",
+        "BIT_MANIPULATION"
+      ]
+    },
+    "supportedType": {
+      "type": "string",
+      "enum": [
+        "int",
+        "long",
+        "double",
+        "boolean",
+        "String",
+        "int[]",
+        "long[]",
+        "String[]",
+        "List<Integer>",
+        "List<String>"
+      ]
+    },
+    "example": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output"],
+      "properties": {
+        "input": { "type": "string", "minLength": 1 },
+        "output": { "type": "string", "minLength": 1 },
+        "explanation": { "type": "string" }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "$ref": "#/$defs/supportedType" }
+      }
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "returnType", "parameters"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "returnType": { "$ref": "#/$defs/supportedType" },
+        "parameters": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "$ref": "#/$defs/parameter" }
+        }
+      }
+    },
+    "testCaseValue": {
+      "anyOf": [
+        { "type": "string" },
+        { "type": "integer" },
+        { "type": "number" },
+        { "type": "boolean" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/testCaseValue" }
+        }
+      ]
+    },
+    "testCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "expectedOutput", "hidden"],
+      "properties": {
+        "input": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/testCaseValue" }
+        },
+        "expectedOutput": { "$ref": "#/$defs/testCaseValue" },
+        "hidden": { "type": "boolean" }
+      }
+    },
+    "problem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "difficulty",
+        "categories",
+        "description",
+        "constraints",
+        "examples",
+        "method",
+        "starterCode",
+        "testCases",
+        "solution"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "minLength": 3,
+          "maxLength": 100
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "difficulty": {
+          "type": "string",
+          "enum": ["EASY", "MEDIUM", "HARD"]
+        },
+        "categories": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/category" }
+        },
+        "description": { "type": "string", "minLength": 1 },
+        "constraints": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "examples": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/example" }
+        },
+        "method": { "$ref": "#/$defs/method" },
+        "starterCode": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["java"],
+          "properties": {
+            "java": { "type": "string", "minLength": 1 }
+          }
+        },
+        "testCases": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/testCase" }
+        },
+        "solution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["java", "explanation", "timeComplexity", "spaceComplexity"],
+          "properties": {
+            "java": { "type": "string", "minLength": 1 },
+            "explanation": { "type": "string", "minLength": 1 },
+            "timeComplexity": { "type": "string", "minLength": 1 },
+            "spaceComplexity": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  }
+}

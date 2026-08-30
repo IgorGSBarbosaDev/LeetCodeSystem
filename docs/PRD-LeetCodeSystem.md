@@ -400,6 +400,23 @@ Cada problema deve conter no mínimo:
 }
 ```
 
+### Regras do schema 1.0
+
+- O pacote deve conter de 1 a 100 problemas e não pode possuir campos desconhecidos.
+- `id` deve ser único no pacote e no banco, seguindo o formato `^[a-z0-9]+(?:-[a-z0-9]+)*$`.
+- `difficulty` aceita `EASY`, `MEDIUM` ou `HARD`.
+- `categories` deve conter de 1 a 10 categorias únicas da lista oficial abaixo.
+- Cada problema deve possuir pelo menos uma restrição, um exemplo e dois casos de teste.
+- Cada problema deve possuir pelo menos um caso público (`hidden: false`) e um oculto (`hidden: true`).
+- `method.parameters` pode conter de zero a dez parâmetros.
+- `testCases[].input` é um objeto indexado pelos nomes dos parâmetros, usando valores JSON tipados.
+- `testCases[].expectedOutput` deve ser compatível com o `returnType`.
+- A solução de referência é obrigatória, mas não é exposta nas consultas normais do frontend.
+
+Os tipos de Java suportados na versão 1.0 são `int`, `long`, `double`, `boolean`, `String`, `int[]`, `long[]`, `String[]`, `List<Integer>` e `List<String>`. O contrato formal está em `docs/problem-package.schema.json` e há um pacote válido em `docs/examples/problem-package.example.json`.
+
+As categorias canônicas são: `ARRAY`, `STRING`, `HASH_TABLE`, `TWO_POINTERS`, `SLIDING_WINDOW`, `STACK`, `QUEUE`, `LINKED_LIST`, `BINARY_SEARCH`, `TREE`, `BINARY_TREE`, `BINARY_SEARCH_TREE`, `HEAP`, `GRAPH`, `BACKTRACKING`, `GREEDY`, `DYNAMIC_PROGRAMMING`, `RECURSION`, `SORTING`, `MATRIX` e `BIT_MANIPULATION`. Categorias fora dessa lista, como `BFS`, são inválidas na versão 1.0.
+
 ---
 
 ## 9. Geração de exercícios com ChatGPT

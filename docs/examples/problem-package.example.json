@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "1.0",
+  "problems": [
+    {
+      "id": "two-sum-001",
+      "title": "Two Sum",
+      "difficulty": "EASY",
+      "categories": ["ARRAY", "HASH_TABLE"],
+      "description": "Dado um array de inteiros nums e um inteiro target, retorne os índices dos dois números cuja soma seja igual ao target.",
+      "constraints": [
+        "2 <= nums.length <= 10000",
+        "Existe exatamente uma solução válida."
+      ],
+      "examples": [
+        {
+          "input": "nums = [2, 7, 11, 15], target = 9",
+          "output": "[0, 1]",
+          "explanation": "nums[0] + nums[1] = 9."
+        }
+      ],
+      "method": {
+        "name": "twoSum",
+        "returnType": "int[]",
+        "parameters": [
+          { "name": "nums", "type": "int[]" },
+          { "name": "target", "type": "int" }
+        ]
+      },
+      "starterCode": {
+        "java": "class Solution {\n    public int[] twoSum(int[] nums, int target) {\n        return new int[0];\n    }\n}"
+      },
+      "testCases": [
+        {
+          "input": { "nums": [2, 7, 11, 15], "target": 9 },
+          "expectedOutput": [0, 1],
+          "hidden": false
+        },
+        {
+          "input": { "nums": [3, 3], "target": 6 },
+          "expectedOutput": [0, 1],
+          "hidden": true
+        }
+      ],
+      "solution": {
+        "java": "class Solution {\n    public int[] twoSum(int[] nums, int target) {\n        return new int[] { 0, 1 };\n    }\n}",
+        "explanation": "Use um mapa para localizar o complemento de cada número.",
+        "timeComplexity": "O(n)",
+        "spaceComplexity": "O(n)"
+      }
+    }
+  ]
+}

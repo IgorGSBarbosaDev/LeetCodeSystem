@@ -7,7 +7,9 @@ pnpm install
 pnpm dev
 ```
 
-O frontend usa dados de demonstração isolados em `src/data/demoProblems.ts` enquanto o backend ainda não expõe os endpoints de problemas, importação e Java Runner. O pacote JSON é validado no navegador conforme o schema `1.0`, mas a persistência no SQLite e os resultados de `Run`/`Submit` dependem da implementação da API.
+O frontend carrega os exercícios persistidos por `GET /api/problems`. A importação envia o `File` original para `POST /api/problem-packages/validate`, exibe o resumo e só depois reenvia o mesmo arquivo para `POST /api/problem-packages/import`. O proxy de desenvolvimento aponta para `http://localhost:8080` por padrão; use `VITE_API_PROXY_TARGET` quando a API estiver em outra porta.
+
+O backend deve estar iniciado em paralelo para listar, validar e importar pacotes. Os dados de demonstração em `src/data/demoProblems.ts` permanecem apenas como referência e não participam do fluxo ativo. Os resultados de `Run`/`Submit` dependem da futura implementação do Java Runner.
 
 Comandos de verificação:
 

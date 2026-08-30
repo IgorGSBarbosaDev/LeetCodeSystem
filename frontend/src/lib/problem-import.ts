@@ -1,9 +1,15 @@
-import type { Difficulty, Problem, ProblemPackage } from '../types'
+import type { Difficulty, JsonValue, Problem, ProblemPackage } from '../types'
 
 const difficulties = new Set<Difficulty>(['EASY', 'MEDIUM', 'HARD'])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return true
+  if (Array.isArray(value)) return value.every(isJsonValue)
+  return isRecord(value) && Object.values(value).every(isJsonValue)
 }
 
 function requiredString(value: unknown, field: string, problemIndex: number): string {
@@ -83,9 +89,15 @@ function validateProblem(value: unknown, index: number): Omit<Problem, 'progress
     testCases: value.testCases.map((testCase, testCaseIndex) => {
       if (!isRecord(testCase)) throw new Error(`Problema ${index + 1}, caso ${testCaseIndex + 1}: formato inválido.`)
       if (typeof testCase.hidden !== 'boolean') throw new Error(`Problema ${index + 1}, caso ${testCaseIndex + 1}: hidden deve ser booleano.`)
+      if (!isRecord(testCase.input) || !Object.values(testCase.input).every(isJsonValue)) {
+        throw new Error(`Problema ${index + 1}, caso ${testCaseIndex + 1}: input deve ser um objeto JSON válido.`)
+      }
+      if (!isJsonValue(testCase.expectedOutput)) {
+        throw new Error(`Problema ${index + 1}, caso ${testCaseIndex + 1}: expectedOutput deve ser um valor JSON válido.`)
+      }
       return {
-        input: requiredString(testCase.input, 'testCases.input', index),
-        expectedOutput: requiredString(testCase.expectedOutput, 'testCases.expectedOutput', index),
+        input: testCase.input as Record<string, JsonValue>,
+        expectedOutput: testCase.expectedOutput,
         hidden: testCase.hidden,
       }
     }),

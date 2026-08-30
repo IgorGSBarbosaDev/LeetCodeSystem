@@ -42,9 +42,9 @@ const twoSum: Problem = {
     spaceComplexity: 'O(n)',
   },
   testCases: [
-    { input: '[2,7,11,15], 9', expectedOutput: '[0,1]', hidden: false },
-    { input: '[3,2,4], 6', expectedOutput: '[1,2]', hidden: false },
-    { input: '[3,3], 6', expectedOutput: '[0,1]', hidden: true },
+    { input: { nums: [2, 7, 11, 15], target: 9 }, expectedOutput: [0, 1], hidden: false },
+    { input: { nums: [3, 2, 4], target: 6 }, expectedOutput: [1, 2], hidden: false },
+    { input: { nums: [3, 3], target: 6 }, expectedOutput: [0, 1], hidden: true },
   ],
   progress: { status: 'SOLVED', attempts: 3, favorite: true, reviewRequired: false },
 }

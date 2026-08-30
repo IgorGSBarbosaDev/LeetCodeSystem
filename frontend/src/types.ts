@@ -1,6 +1,14 @@
 export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD'
 export type ProgressStatus = 'NOT_STARTED' | 'ATTEMPTED' | 'SOLVED' | 'REVIEW'
 
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue }
+
 export type Example = {
   input: string
   output: string
@@ -13,8 +21,8 @@ export type MethodParameter = {
 }
 
 export type TestCase = {
-  input: string
-  expectedOutput: string
+  input: Record<string, JsonValue>
+  expectedOutput: JsonValue
   hidden: boolean
 }
 
@@ -51,7 +59,39 @@ export type Problem = {
   progress: ProblemProgress
 }
 
+export type ProblemSummary = Pick<Problem, 'id' | 'title' | 'difficulty' | 'categories' | 'progress'>
+
+export type ProblemDetails = Omit<Problem, 'solution'> & {
+  hiddenTestCaseCount: number
+}
+
 export type ProblemPackage = {
   schemaVersion: '1.0'
   problems: Omit<Problem, 'progress'>[]
+}
+
+export type ProblemImportSummary = {
+  id: string
+  title: string
+  difficulty: Difficulty
+  categories: string[]
+  publicTestCases: number
+  hiddenTestCases: number
+}
+
+export type PackageValidationResponse = {
+  schemaVersion: '1.0'
+  problemCount: number
+  problems: ProblemImportSummary[]
+}
+
+export type PackageImportResponse = {
+  importedCount: number
+  problemIds: string[]
+}
+
+export type ApiError = {
+  code: string
+  message: string
+  errors?: { path: string; message: string }[]
 }

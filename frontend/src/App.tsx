@@ -21,13 +21,12 @@ import {
   X,
 } from 'lucide-react'
 
-import { demoProblems } from './data/demoProblems'
-import { parseProblemPackage, withInitialProgress } from './lib/problem-import'
-import type { Difficulty, Problem, ProblemProgress, ProblemPackage, ProgressStatus } from './types'
+import { ApiRequestError, fetchProblem, fetchProblems, importProblemPackage, validateProblemPackage } from './lib/api'
+import type { Difficulty, PackageValidationResponse, ProblemDetails, ProblemProgress, ProblemSummary, ProgressStatus } from './types'
 
 type View = 'Dashboard' | 'Exercícios' | 'Favoritos' | 'Revisões'
 type DifficultyFilter = 'TODAS' | Difficulty
-type Feedback = { kind: 'error' | 'success'; message: string }
+type Feedback = { kind: 'error' | 'success'; message: string; details?: string[] }
 
 const navItems: { label: View; icon: typeof LayoutDashboard }[] = [
   { label: 'Dashboard', icon: LayoutDashboard },
@@ -40,6 +39,45 @@ const difficultyLabels: Record<Difficulty, string> = {
   EASY: 'Easy',
   MEDIUM: 'Medium',
   HARD: 'Hard',
+}
+
+const categoryLabels: Record<string, string> = {
+  ARRAY: 'Array',
+  STRING: 'String',
+  HASH_TABLE: 'Hash Table',
+  TWO_POINTERS: 'Two Pointers',
+  SLIDING_WINDOW: 'Sliding Window',
+  STACK: 'Stack',
+  QUEUE: 'Queue',
+  LINKED_LIST: 'Linked List',
+  BINARY_SEARCH: 'Binary Search',
+  TREE: 'Tree',
+  BINARY_TREE: 'Binary Tree',
+  BINARY_SEARCH_TREE: 'Binary Search Tree',
+  HEAP: 'Heap',
+  GRAPH: 'Graph',
+  BACKTRACKING: 'Backtracking',
+  GREEDY: 'Greedy',
+  DYNAMIC_PROGRAMMING: 'Dynamic Programming',
+  RECURSION: 'Recursion',
+  SORTING: 'Sorting',
+  MATRIX: 'Matrix',
+  BIT_MANIPULATION: 'Bit Manipulation',
+}
+
+function formatCategory(category: string): string {
+  return categoryLabels[category] ?? category
+}
+
+function feedbackFromError(error: unknown, fallback: string): Feedback {
+  if (error instanceof ApiRequestError) {
+    return {
+      kind: 'error',
+      message: error.message,
+      details: error.details?.map((detail) => `${detail.path}: ${detail.message}`),
+    }
+  }
+  return { kind: 'error', message: error instanceof Error ? error.message : fallback }
 }
 
 const statusLabels: Record<ProgressStatus, string> = {
@@ -61,18 +99,32 @@ export default function App() {
   const [activeView, setActiveView] = useState<View>('Dashboard')
   const [query, setQuery] = useState('')
   const [difficulty, setDifficulty] = useState<DifficultyFilter>('TODAS')
-  const [problems, setProblems] = useState<Problem[]>(demoProblems)
-  const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null)
+  const [problems, setProblems] = useState<ProblemSummary[]>([])
+  const [selectedProblem, setSelectedProblem] = useState<ProblemDetails | null>(null)
   const [showImport, setShowImport] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
-  const [notice, setNotice] = useState<string | null>(
-    'Modo de demonstração: a API Spring Boot ainda não possui endpoints de problemas ou execução.',
-  )
+  const [notice, setNotice] = useState<string | null>(null)
+  const [loadingProblems, setLoadingProblems] = useState(true)
 
   useEffect(() => {
     document.title = 'LeetCodeSystem — Prática de algoritmos'
   }, [])
+
+  const loadProblems = useCallback(async () => {
+    setLoadingProblems(true)
+    try {
+      setProblems(await fetchProblems())
+    } catch (error) {
+      setNotice(feedbackFromError(error, 'Não foi possível carregar os exercícios da API.').message)
+    } finally {
+      setLoadingProblems(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadProblems()
+  }, [loadProblems])
 
   const updateProgress = useCallback((problemId: string, change: Partial<ProblemProgress>) => {
     setProblems((current) =>
@@ -96,7 +148,7 @@ export default function App() {
       const matchesQuery =
         normalizedQuery.length === 0 ||
         problem.title.toLocaleLowerCase('pt-BR').includes(normalizedQuery) ||
-        problem.categories.some((category) => category.toLocaleLowerCase('pt-BR').includes(normalizedQuery))
+        problem.categories.some((category) => formatCategory(category).toLocaleLowerCase('pt-BR').includes(normalizedQuery))
       const matchesDifficulty = difficulty === 'TODAS' || problem.difficulty === difficulty
       const matchesView =
         activeView === 'Exercícios' ||
@@ -112,20 +164,19 @@ export default function App() {
     setMobileMenuOpen(false)
   }
 
-  const handleImported = (problemPackage: ProblemPackage) => {
-    const imported = problemPackage.problems.map(withInitialProgress)
-    const currentIds = new Set(problems.map((problem) => problem.id))
-    const newProblems = imported.filter((problem) => !currentIds.has(problem.id))
-    setProblems((current) => {
-      const latestIds = new Set(current.map((problem) => problem.id))
-      return [...current, ...newProblems.filter((problem) => !latestIds.has(problem.id))]
-    })
+  const handleImported = async (file: File) => {
+    const result = await importProblemPackage(file)
+    await loadProblems()
     setShowImport(false)
-    setNotice(
-      newProblems.length === 0
-        ? 'Nenhum exercício novo foi adicionado: os IDs do pacote já existem na sessão.'
-        : `${newProblems.length} exercício${newProblems.length === 1 ? '' : 's'} validado${newProblems.length === 1 ? '' : 's'} e adicionado${newProblems.length === 1 ? '' : 's'} à sessão. A persistência no SQLite aguarda a API do backend.`,
-    )
+    setNotice(`${result.importedCount} exercício${result.importedCount === 1 ? '' : 's'} importado${result.importedCount === 1 ? '' : 's'} e persistido${result.importedCount === 1 ? '' : 's'} no SQLite.`)
+  }
+
+  const openProblem = async (problem: ProblemSummary) => {
+    try {
+      setSelectedProblem(await fetchProblem(problem.id))
+    } catch (error) {
+      setNotice(feedbackFromError(error, 'Não foi possível carregar o exercício.').message)
+    }
   }
 
   return (
@@ -188,7 +239,9 @@ export default function App() {
 
         <div className="mx-auto max-w-[1400px] p-5 md:p-8">
           {notice && <Notice message={notice} onDismiss={() => setNotice(null)} />}
-          {activeView === 'Dashboard' ? (
+          {loadingProblems ? (
+            <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground" role="status">Carregando exercícios...</div>
+          ) : activeView === 'Dashboard' ? (
             <Dashboard problems={problems} onOpen={() => openView('Exercícios')} />
           ) : (
             <Exercises
@@ -198,7 +251,7 @@ export default function App() {
               onQueryChange={setQuery}
               difficulty={difficulty}
               onDifficultyChange={setDifficulty}
-              onSelect={setSelectedProblem}
+              onSelect={openProblem}
               onToggleFavorite={(problem) => updateProgress(problem.id, { favorite: !problem.progress.favorite })}
               onToggleReview={(problem) =>
                 updateProgress(problem.id, toggleReview(problem.progress))
@@ -273,7 +326,7 @@ function Notice({ message, onDismiss }: { message: string; onDismiss: () => void
   )
 }
 
-function Dashboard({ problems, onOpen }: { problems: Problem[]; onOpen: () => void }) {
+function Dashboard({ problems, onOpen }: { problems: ProblemSummary[]; onOpen: () => void }) {
   const solved = problems.filter((problem) => problem.progress.status === 'SOLVED').length
   const attempted = problems.filter((problem) => problem.progress.attempts > 0 && problem.progress.status !== 'SOLVED').length
   const total = problems.length
@@ -331,7 +384,7 @@ function Dashboard({ problems, onOpen }: { problems: Problem[]; onOpen: () => vo
             <button onClick={onOpen} className="mt-6 flex w-full items-center justify-between rounded-lg border border-border p-4 text-left hover:bg-muted">
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium">{nextProblem.title}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{difficultyLabels[nextProblem.difficulty]} · {nextProblem.categories[0]}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{difficultyLabels[nextProblem.difficulty]} · {formatCategory(nextProblem.categories[0])}</span>
               </span>
               <ArrowUpRight className="size-4 shrink-0" />
             </button>
@@ -368,15 +421,15 @@ function Exercises({
   onToggleFavorite,
   onToggleReview,
 }: {
-  problems: Problem[]
+  problems: ProblemSummary[]
   activeView: View
   query: string
   onQueryChange: (value: string) => void
   difficulty: DifficultyFilter
   onDifficultyChange: (value: DifficultyFilter) => void
-  onSelect: (problem: Problem) => void
-  onToggleFavorite: (problem: Problem) => void
-  onToggleReview: (problem: Problem) => void
+  onSelect: (problem: ProblemSummary) => void
+  onToggleFavorite: (problem: ProblemSummary) => void
+  onToggleReview: (problem: ProblemSummary) => void
 }) {
   const heading = activeView === 'Exercícios' ? 'Exercícios' : activeView
   const description = activeView === 'Favoritos' ? 'Acesse rapidamente os exercícios que você marcou.' : activeView === 'Revisões' ? 'Retome os exercícios que precisam de mais uma tentativa.' : 'Pratique, acompanhe e melhore suas habilidades.'
@@ -435,7 +488,7 @@ function Exercises({
                 {problem.title}
               </button>
               <span className="text-xs text-muted-foreground">{difficultyLabels[problem.difficulty]}</span>
-              <span className="hidden truncate text-xs text-muted-foreground md:block">{problem.categories.join(' · ')}</span>
+              <span className="hidden truncate text-xs text-muted-foreground md:block">{problem.categories.map(formatCategory).join(' · ')}</span>
               <span className="hidden text-xs text-muted-foreground md:block">{statusLabels[problem.progress.status]}</span>
               <div className="flex items-center justify-end gap-1">
                 <button onClick={() => onToggleFavorite(problem)} className="rounded-md p-2 hover:bg-muted" aria-label={`${problem.progress.favorite ? 'Remover dos' : 'Adicionar aos'} favoritos`}>
@@ -465,24 +518,45 @@ function EmptyState({ title, description }: { title: string; description: string
   )
 }
 
-function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (problemPackage: ProblemPackage) => void }) {
+function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (file: File) => Promise<void> }) {
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [parsedPackage, setParsedPackage] = useState<ProblemPackage | null>(null)
+  const [validation, setValidation] = useState<PackageValidationResponse | null>(null)
+  const [validating, setValidating] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return
     setSelectedFile(file)
     setFeedback(null)
-    setParsedPackage(null)
+    setValidation(null)
 
+    if (file.size > 5 * 1024 * 1024) {
+      setFeedback({ kind: 'error', message: 'O arquivo excede o limite máximo de 5 MiB.' })
+      return
+    }
+
+    setValidating(true)
     try {
-      const raw = JSON.parse(await file.text()) as unknown
-      const validated = parseProblemPackage(raw)
-      setParsedPackage(validated)
-      setFeedback({ kind: 'success', message: `${validated.problems.length} exercício${validated.problems.length === 1 ? '' : 's'} pronto${validated.problems.length === 1 ? '' : 's'} para importação.` })
+      const validated = await validateProblemPackage(file)
+      setValidation(validated)
+      setFeedback({ kind: 'success', message: `${validated.problemCount} exercício${validated.problemCount === 1 ? '' : 's'} validado${validated.problemCount === 1 ? '' : 's'}. Confirme para persistir no SQLite.` })
     } catch (error) {
-      setFeedback({ kind: 'error', message: error instanceof SyntaxError ? 'O arquivo não contém JSON válido.' : error instanceof Error ? error.message : 'Não foi possível validar o pacote.' })
+      setFeedback(feedbackFromError(error, 'Não foi possível validar o pacote.'))
+    } finally {
+      setValidating(false)
+    }
+  }
+
+  const handleImport = async () => {
+    if (!selectedFile || !validation) return
+    setImporting(true)
+    try {
+      await onImport(selectedFile)
+    } catch (error) {
+      setFeedback(feedbackFromError(error, 'Não foi possível importar o pacote.'))
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -504,18 +578,46 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (pr
           <input type="file" accept="application/json,.json" className="sr-only" onChange={(event) => handleFile(event.target.files?.[0])} />
         </label>
 
-        {feedback && <p className={`mt-4 rounded-lg border px-3 py-2 text-sm ${feedback.kind === 'error' ? 'border-destructive/40 text-destructive' : 'border-border text-muted-foreground'}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.message}</p>}
-        <p className="mt-4 text-xs leading-5 text-muted-foreground">A validação e a inclusão abaixo são locais nesta sessão. A gravação definitiva no SQLite depende do endpoint de importação do backend.</p>
+        {feedback && (
+          <div className={`mt-4 rounded-lg border px-3 py-2 text-sm ${feedback.kind === 'error' ? 'border-destructive/40 text-destructive' : 'border-border text-muted-foreground'}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>
+            <p>{feedback.message}</p>
+            {feedback.details && feedback.details.length > 0 && (
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
+                {feedback.details.map((detail) => <li key={detail}>{detail}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {validation && (
+          <div className="mt-4 max-h-48 overflow-y-auto rounded-lg border border-border bg-muted/30 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Resumo validado</p>
+            <div className="mt-3 space-y-3">
+              {validation.problems.map((problem) => (
+                <div key={problem.id} className="text-sm">
+                  <p className="font-medium">{problem.title}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {difficultyLabels[problem.difficulty]} · {problem.categories.map(formatCategory).join(' · ')} · {problem.publicTestCases} públicos · {problem.hiddenTestCases} ocultos
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <p className="mt-4 text-xs leading-5 text-muted-foreground">A validação é feita pelo backend antes de qualquer gravação. A confirmação reenvia o mesmo arquivo e repete a validação dentro do fluxo de importação.</p>
         <div className="mt-6 flex justify-end gap-3">
-          <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm hover:bg-muted">Cancelar</button>
-          <button disabled={!parsedPackage} onClick={() => parsedPackage && onImport(parsedPackage)} className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40">Adicionar à sessão</button>
+          <button disabled={validating || importing} onClick={onClose} className="rounded-lg px-4 py-2 text-sm hover:bg-muted disabled:opacity-40">Cancelar</button>
+          <button disabled={!validation || validating || importing} onClick={() => void handleImport()} className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40">
+            {importing ? 'Importando...' : 'Importar pacote'}
+          </button>
         </div>
       </div>
     </div>
   )
 }
 
-function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview }: { problem: Problem; onClose: () => void; onToggleFavorite: () => void; onToggleReview: () => void }) {
+function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview }: { problem: ProblemDetails; onClose: () => void; onToggleFavorite: () => void; onToggleReview: () => void }) {
   const [left, setLeft] = useState(46)
   const [code, setCode] = useState(problem.starterCode.java)
   const [resizing, setResizing] = useState(false)
@@ -566,7 +668,7 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview }: { pr
           <div className="mx-auto max-w-xl">
             <div className="mb-5 flex flex-wrap items-center gap-3">
               <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium">{difficultyLabels[problem.difficulty]}</span>
-              <span className="text-xs text-muted-foreground">{problem.categories.join(' · ')}</span>
+              <span className="text-xs text-muted-foreground">{problem.categories.map(formatCategory).join(' · ')}</span>
             </div>
             <h1 className="text-3xl font-semibold tracking-tight">{problem.title}</h1>
             <p className="mt-6 whitespace-pre-line leading-7 text-muted-foreground">{problem.description}</p>
@@ -605,7 +707,7 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview }: { pr
         <section className="flex min-h-[420px] min-w-0 flex-1 flex-col bg-card">
           <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
             <span className="rounded-md bg-muted px-3 py-1.5 text-sm font-medium">Solução</span>
-            <span className="ml-auto font-mono text-xs text-muted-foreground">Java</span>
+              <span className="ml-auto font-mono text-xs text-muted-foreground">Java · {problem.hiddenTestCaseCount} casos ocultos</span>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden bg-[#1e1e1e] p-1">
             <Editor

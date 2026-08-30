@@ -1,0 +1,14 @@
+# Vite output and local dependencies
+node_modules
+dist/
+.next/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Local files
+.DS_Store
+*.log

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import {
   AlertCircle,
@@ -21,8 +21,9 @@ import {
   X,
 } from 'lucide-react'
 
-import { ApiRequestError, fetchProblem, fetchProblems, importProblemPackage, validateProblemPackage } from './lib/api'
-import type { Difficulty, PackageValidationResponse, ProblemDetails, ProblemProgress, ProblemSummary, ProgressStatus } from './types'
+import { ApiRequestError, fetchProblem, fetchProblems, importProblemPackage, runProblem, submitProblem, validateProblemPackage } from './lib/api'
+import ExecutionResultPanel from './components/ExecutionResultPanel'
+import type { CodeExecutionResult, Difficulty, PackageValidationResponse, ProblemDetails, ProblemProgress, ProblemSummary, ProgressStatus } from './types'
 
 type View = 'Dashboard' | 'Exercícios' | 'Favoritos' | 'Revisões'
 type DifficultyFilter = 'TODAS' | Difficulty
@@ -139,6 +140,27 @@ export default function App() {
         ? { ...current, progress: { ...current.progress, ...change } }
         : current,
     )
+  }, [])
+
+  const refreshAfterSubmission = useCallback(async (problemId: string): Promise<string | null> => {
+    const [catalog, details] = await Promise.allSettled([fetchProblems(), fetchProblem(problemId)])
+    let failed = false
+
+    if (catalog.status === 'fulfilled') {
+      setProblems(catalog.value)
+    } else {
+      failed = true
+    }
+
+    if (details.status === 'fulfilled') {
+      setSelectedProblem((current) => current?.id === problemId ? details.value : current)
+    } else {
+      failed = true
+    }
+
+    const syncError = failed ? 'Submissão concluída, mas não foi possível recarregar todo o progresso.' : null
+    if (syncError) setNotice(syncError)
+    return syncError
   }, [])
 
   const filteredProblems = useMemo(() => {
@@ -270,6 +292,7 @@ export default function App() {
           onToggleReview={() =>
             updateProgress(selectedProblem.id, toggleReview(selectedProblem.progress))
           }
+          onSubmissionComplete={refreshAfterSubmission}
         />
       )}
     </main>
@@ -617,11 +640,30 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (fi
   )
 }
 
-function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview }: { problem: ProblemDetails; onClose: () => void; onToggleFavorite: () => void; onToggleReview: () => void }) {
+function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, onSubmissionComplete }: {
+  problem: ProblemDetails
+  onClose: () => void
+  onToggleFavorite: () => void
+  onToggleReview: () => void
+  onSubmissionComplete: (problemId: string) => Promise<string | null>
+}) {
   const [left, setLeft] = useState(46)
   const [code, setCode] = useState(problem.starterCode.java)
   const [resizing, setResizing] = useState(false)
-  const [runnerMessage, setRunnerMessage] = useState('Execute a solução quando o Java Runner estiver disponível.')
+  const [result, setResult] = useState<CodeExecutionResult | null>(null)
+  const [resultAction, setResultAction] = useState<'Run' | 'Submit'>('Run')
+  const [pendingAction, setPendingAction] = useState<'Run' | 'Submit' | null>(null)
+  const [runnerError, setRunnerError] = useState<string | null>(null)
+  const [syncingProgress, setSyncingProgress] = useState(false)
+  const [progressSyncError, setProgressSyncError] = useState<string | null>(null)
+  const mounted = useRef(true)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!resizing) return
@@ -635,8 +677,49 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview }: { pr
     }
   }, [resizing])
 
-  const requestRun = (kind: 'Run' | 'Submit') => {
-    setRunnerMessage(`${kind} aguardando o endpoint do Java Runner no backend. Nenhum resultado foi simulado.`)
+  const execute = async (kind: 'Run' | 'Submit') => {
+    if (pendingAction || syncingProgress) return
+    if (!code.trim()) {
+      setRunnerResultError('Digite uma solução antes de executar.')
+      return
+    }
+
+    setPendingAction(kind)
+    setResultAction(kind)
+    setResult(null)
+    setRunnerError(null)
+    setProgressSyncError(null)
+
+    try {
+      const execution = kind === 'Run'
+        ? await runProblem(problem.id, code)
+        : await submitProblem(problem.id, code)
+
+      if (mounted.current) {
+        setResult(execution)
+      }
+
+      if (kind === 'Submit') {
+        if (mounted.current) setSyncingProgress(true)
+        try {
+          const syncError = await onSubmissionComplete(problem.id)
+          if (mounted.current) setProgressSyncError(syncError)
+        } finally {
+          if (mounted.current) setSyncingProgress(false)
+        }
+      }
+    } catch (error) {
+      if (mounted.current) {
+        setRunnerError(feedbackFromError(error, 'Não foi possível executar a solução.').message)
+      }
+    } finally {
+      if (mounted.current) setPendingAction(null)
+    }
+  }
+
+  const setRunnerResultError = (message: string) => {
+    setResult(null)
+    setRunnerError(message)
   }
 
   return (
@@ -654,11 +737,11 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview }: { pr
           <button onClick={onToggleFavorite} className={`hidden rounded-lg border border-border px-3 py-2 text-sm sm:flex ${problem.progress.favorite ? 'bg-secondary' : ''}`}>
             <Heart className={`mr-2 size-4 ${problem.progress.favorite ? 'fill-current' : ''}`} />Favoritar
           </button>
-          <button onClick={() => requestRun('Run')} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted">
-            <Play className="size-4" />Run
+          <button disabled={pendingAction !== null || syncingProgress} onClick={() => void execute('Run')} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">
+            <Play className="size-4" />{pendingAction === 'Run' ? 'Executando...' : 'Run'}
           </button>
-          <button onClick={() => requestRun('Submit')} className="flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
-            <Check className="size-4" />Submit
+          <button disabled={pendingAction !== null || syncingProgress} onClick={() => void execute('Submit')} className="flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50">
+            <Check className="size-4" />{pendingAction === 'Submit' ? 'Enviando...' : 'Submit'}
           </button>
         </div>
       </header>
@@ -716,16 +799,10 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview }: { pr
               theme="vs-dark"
               value={code}
               onChange={(value) => setCode(value ?? '')}
-              options={{ automaticLayout: true, minimap: { enabled: false }, padding: { top: 16 }, fontSize: 14, tabSize: 4, scrollBeyondLastLine: false }}
+              options={{ automaticLayout: true, minimap: { enabled: false }, padding: { top: 16 }, fontSize: 14, tabSize: 4, scrollBeyondLastLine: false, readOnly: pendingAction !== null }}
             />
           </div>
-          <div className="border-t border-border bg-muted/30 p-4">
-            <div className="mb-2 flex items-center justify-between gap-4">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Resultado</span>
-              <span className="text-xs text-muted-foreground">{problem.testCases.filter((testCase) => !testCase.hidden).length} casos públicos</span>
-            </div>
-            <div className="rounded-lg border border-border bg-background p-3 font-mono text-xs text-muted-foreground">{runnerMessage}</div>
-          </div>
+          <ExecutionResultPanel action={resultAction} result={result} pending={pendingAction !== null} error={runnerError} syncing={syncingProgress} syncError={progressSyncError} />
         </section>
       </div>
     </div>

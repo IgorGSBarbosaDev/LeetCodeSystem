@@ -1,10 +1,15 @@
 import type {
   ApiError,
+  CodeExecutionResult,
   PackageImportResponse,
   PackageValidationResponse,
   ProblemDetails,
   ProblemSummary,
 } from '../types'
+
+type BackendProblemDetails = Omit<ProblemDetails, 'starterCode'> & {
+  starterCode: string | ProblemDetails['starterCode']
+}
 
 export class ApiRequestError extends Error {
   readonly status: number
@@ -58,6 +63,26 @@ export function fetchProblems(): Promise<ProblemSummary[]> {
   return request<ProblemSummary[]>('/api/problems')
 }
 
-export function fetchProblem(id: string): Promise<ProblemDetails> {
-  return request<ProblemDetails>(`/api/problems/${encodeURIComponent(id)}`)
+export async function fetchProblem(id: string): Promise<ProblemDetails> {
+  const problem = await request<BackendProblemDetails>(`/api/problems/${encodeURIComponent(id)}`)
+  return {
+    ...problem,
+    starterCode: typeof problem.starterCode === 'string' ? { java: problem.starterCode } : problem.starterCode,
+  }
+}
+
+function executeProblem(id: string, action: 'run' | 'submit', code: string): Promise<CodeExecutionResult> {
+  return request<CodeExecutionResult>(`/api/problems/${encodeURIComponent(id)}/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  })
+}
+
+export function runProblem(id: string, code: string): Promise<CodeExecutionResult> {
+  return executeProblem(id, 'run', code)
+}
+
+export function submitProblem(id: string, code: string): Promise<CodeExecutionResult> {
+  return executeProblem(id, 'submit', code)
 }

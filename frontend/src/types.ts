@@ -1,5 +1,6 @@
 export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD'
 export type ProgressStatus = 'NOT_STARTED' | 'ATTEMPTED' | 'SOLVED' | 'REVIEW'
+export type JudgeStatus = 'ACCEPTED' | 'WRONG_ANSWER' | 'COMPILATION_ERROR' | 'RUNTIME_ERROR' | 'TIME_LIMIT_EXCEEDED'
 
 export type JsonValue =
   | string
@@ -94,4 +95,25 @@ export type ApiError = {
   code: string
   message: string
   errors?: { path: string; message: string }[]
+}
+
+export type TestExecutionResult = {
+  index: number
+  hidden: boolean
+  status: JudgeStatus
+  input?: JsonValue
+  expectedOutput?: JsonValue
+  actualOutput?: JsonValue
+  executionTimeMs: number
+  error?: string | null
+}
+
+export type CodeExecutionResult = {
+  status: JudgeStatus
+  testsPassed: number
+  totalTests: number
+  executionTimeMs: number
+  testResults: TestExecutionResult[]
+  compilationError?: string | null
+  runtimeError?: string | null
 }

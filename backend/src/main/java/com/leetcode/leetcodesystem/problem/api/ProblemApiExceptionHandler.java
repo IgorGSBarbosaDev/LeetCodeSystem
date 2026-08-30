@@ -4,9 +4,12 @@ import com.leetcode.leetcodesystem.problem.importer.PackageConflictException;
 import com.leetcode.leetcodesystem.problem.importer.PackageFileTooLargeException;
 import com.leetcode.leetcodesystem.problem.importer.PackageValidationException;
 import com.leetcode.leetcodesystem.problem.importer.ValidationErrorDetail;
+import com.leetcode.leetcodesystem.problem.judge.RunnerUnavailableException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -71,6 +74,36 @@ public class ProblemApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiErrorResponse(
                 "PROBLEM_NOT_FOUND",
                 exception.getMessage(),
+                List.of()
+        ));
+    }
+
+    @ExceptionHandler(RunnerUnavailableException.class)
+    public ResponseEntity<ApiErrorResponse> handleRunnerUnavailable(RunnerUnavailableException exception) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ApiErrorResponse(
+                "RUNNER_UNAVAILABLE",
+                exception.getMessage(),
+                List.of()
+        ));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidRequest(MethodArgumentNotValidException exception) {
+        List<ValidationErrorDetail> errors = exception.getBindingResult().getFieldErrors().stream()
+                .map(error -> new ValidationErrorDetail(error.getField(), error.getDefaultMessage()))
+                .toList();
+        return ResponseEntity.badRequest().body(new ApiErrorResponse(
+                "CODE_REQUIRED",
+                "O campo code é obrigatório e não pode ficar em branco.",
+                errors
+        ));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> handleUnreadableRequest(HttpMessageNotReadableException exception) {
+        return ResponseEntity.badRequest().body(new ApiErrorResponse(
+                "CODE_REQUIRED",
+                "Envie um corpo JSON com o campo code.",
                 List.of()
         ));
     }

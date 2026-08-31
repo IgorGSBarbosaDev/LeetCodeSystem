@@ -150,7 +150,7 @@ class ProblemExecutionIntegrationTests {
     }
 
     @Test
-    void failedSubmissionPreservesReviewStatusAndFlag() throws Exception {
+    void failedSubmissionPreservesReviewFlagAndNormalizesLegacyStatus() throws Exception {
         importProblem();
         jdbcTemplate.update("UPDATE problem_progress SET status = 'REVIEW', review_required = 1 "
                 + "WHERE problem_id = 'two-sum-001'");
@@ -160,7 +160,7 @@ class ProblemExecutionIntegrationTests {
 
         var progress = progressRepository.findByProblemId("two-sum-001").orElseThrow();
         assertThat(progress.getAttempts()).isEqualTo(1);
-        assertThat(progress.getStatus()).isEqualTo(ProgressStatus.REVIEW);
+        assertThat(progress.getStatus()).isEqualTo(ProgressStatus.ATTEMPTED);
         assertThat(progress.isReviewRequired()).isTrue();
     }
 

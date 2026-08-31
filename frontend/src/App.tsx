@@ -2,10 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Editor from '@monaco-editor/react'
 import {
   AlertCircle,
-  ArrowUpRight,
-  BarChart3,
   BookOpen,
   Check,
+  Clock3,
   Code2,
   FileJson,
   Filter,
@@ -15,7 +14,6 @@ import {
   Menu,
   MoreHorizontal,
   Play,
-  RotateCcw,
   Search,
   Upload,
   X,
@@ -23,9 +21,14 @@ import {
 
 import { ApiRequestError, fetchProblem, fetchProblems, importProblemPackage, runProblem, submitProblem, validateProblemPackage } from './lib/api'
 import ExecutionResultPanel from './components/ExecutionResultPanel'
-import type { CodeExecutionResult, Difficulty, PackageValidationResponse, ProblemDetails, ProblemProgress, ProblemSummary, ProgressStatus } from './types'
+import DashboardView from './components/DashboardView'
+import { SubmissionHistoryPanel } from './components/SubmissionHistory'
+import SubmissionHistoryView from './components/SubmissionHistory'
+import { useDashboardData } from './hooks/useDashboardData'
+import { useProblemProgress } from './hooks/useProblemProgress'
+import type { CodeExecutionResult, Difficulty, PackageValidationResponse, ProblemDetails, ProblemSummary, ProgressStatus } from './types'
 
-type View = 'Dashboard' | 'Exercícios' | 'Favoritos' | 'Revisões'
+type View = 'Dashboard' | 'Exercícios' | 'Favoritos' | 'Revisões' | 'Histórico'
 type DifficultyFilter = 'TODAS' | Difficulty
 type Feedback = { kind: 'error' | 'success'; message: string; details?: string[] }
 
@@ -34,6 +37,7 @@ const navItems: { label: View; icon: typeof LayoutDashboard }[] = [
   { label: 'Exercícios', icon: ListChecks },
   { label: 'Favoritos', icon: Heart },
   { label: 'Revisões', icon: BookOpen },
+  { label: 'Histórico', icon: Clock3 },
 ]
 
 const difficultyLabels: Record<Difficulty, string> = {
@@ -88,14 +92,6 @@ const statusLabels: Record<ProgressStatus, string> = {
   REVIEW: 'Para revisar',
 }
 
-function toggleReview(progress: ProblemProgress): Partial<ProblemProgress> {
-  const reviewRequired = !progress.reviewRequired
-  return {
-    reviewRequired,
-    status: reviewRequired ? 'REVIEW' : progress.attempts > 0 ? 'ATTEMPTED' : 'NOT_STARTED',
-  }
-}
-
 export default function App() {
   const [activeView, setActiveView] = useState<View>('Dashboard')
   const [query, setQuery] = useState('')
@@ -107,6 +103,14 @@ export default function App() {
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [loadingProblems, setLoadingProblems] = useState(true)
+  const [historyForProblem, setHistoryForProblem] = useState<string | null>(null)
+  const {
+    data: dashboard,
+    loading: dashboardLoading,
+    refreshing: dashboardRefreshing,
+    error: dashboardError,
+    refresh: refreshDashboard,
+  } = useDashboardData()
 
   useEffect(() => {
     document.title = 'LeetCodeSystem — Prática de algoritmos'
@@ -127,23 +131,19 @@ export default function App() {
     void loadProblems()
   }, [loadProblems])
 
-  const updateProgress = useCallback((problemId: string, change: Partial<ProblemProgress>) => {
-    setProblems((current) =>
-      current.map((problem) =>
-        problem.id === problemId
-          ? { ...problem, progress: { ...problem.progress, ...change } }
-          : problem,
-      ),
-    )
-    setSelectedProblem((current) =>
-      current?.id === problemId
-        ? { ...current, progress: { ...current.progress, ...change } }
-        : current,
-    )
+  const handleProgressError = useCallback((error: unknown, fallback: string) => {
+    setNotice(feedbackFromError(error, fallback).message)
   }, [])
 
+  const { pending: progressPending, update: updateProgress } = useProblemProgress({
+    setProblems,
+    setSelectedProblem,
+    refreshDashboard,
+    onError: handleProgressError,
+  })
+
   const refreshAfterSubmission = useCallback(async (problemId: string): Promise<string | null> => {
-    const [catalog, details] = await Promise.allSettled([fetchProblems(), fetchProblem(problemId)])
+    const [catalog, details, dashboardResult] = await Promise.allSettled([fetchProblems(), fetchProblem(problemId), refreshDashboard()])
     let failed = false
 
     if (catalog.status === 'fulfilled') {
@@ -158,10 +158,14 @@ export default function App() {
       failed = true
     }
 
+    if (dashboardResult.status !== 'fulfilled') {
+      failed = true
+    }
+
     const syncError = failed ? 'Submissão concluída, mas não foi possível recarregar todo o progresso.' : null
     if (syncError) setNotice(syncError)
     return syncError
-  }, [])
+  }, [refreshDashboard])
 
   const filteredProblems = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('pt-BR')
@@ -188,7 +192,7 @@ export default function App() {
 
   const handleImported = async (file: File) => {
     const result = await importProblemPackage(file)
-    await loadProblems()
+    await Promise.all([loadProblems(), refreshDashboard()])
     setShowImport(false)
     setNotice(`${result.importedCount} exercício${result.importedCount === 1 ? '' : 's'} importado${result.importedCount === 1 ? '' : 's'} e persistido${result.importedCount === 1 ? '' : 's'} no SQLite.`)
   }
@@ -264,7 +268,23 @@ export default function App() {
           {loadingProblems ? (
             <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground" role="status">Carregando exercícios...</div>
           ) : activeView === 'Dashboard' ? (
-            <Dashboard problems={problems} onOpen={() => openView('Exercícios')} />
+            <DashboardView
+              dashboard={dashboard}
+              loading={dashboardLoading}
+              refreshing={dashboardRefreshing}
+              error={dashboardError}
+              onRetry={() => void refreshDashboard().catch((error) => setNotice(feedbackFromError(error, 'Não foi possível atualizar o dashboard.').message))}
+              problems={problems}
+              onOpenExercises={() => openView('Exercícios')}
+              onOpenFavorites={() => openView('Favoritos')}
+              onOpenReviews={() => openView('Revisões')}
+              onOpenProblem={(problemId) => {
+                const summary = problems.find((problem) => problem.id === problemId)
+                if (summary) void openProblem(summary)
+              }}
+            />
+          ) : activeView === 'Histórico' ? (
+            <SubmissionHistoryView problems={problems} />
           ) : (
             <Exercises
               problems={filteredProblems}
@@ -274,10 +294,9 @@ export default function App() {
               difficulty={difficulty}
               onDifficultyChange={setDifficulty}
               onSelect={openProblem}
-              onToggleFavorite={(problem) => updateProgress(problem.id, { favorite: !problem.progress.favorite })}
-              onToggleReview={(problem) =>
-                updateProgress(problem.id, toggleReview(problem.progress))
-              }
+              onToggleFavorite={(problem) => void updateProgress(problem.id, { favorite: !problem.progress.favorite })}
+              onToggleReview={(problem) => void updateProgress(problem.id, { reviewRequired: !problem.progress.reviewRequired })}
+              progressPending={progressPending}
             />
           )}
         </div>
@@ -288,13 +307,14 @@ export default function App() {
         <SolveModal
           problem={selectedProblem}
           onClose={() => setSelectedProblem(null)}
-          onToggleFavorite={() => updateProgress(selectedProblem.id, { favorite: !selectedProblem.progress.favorite })}
-          onToggleReview={() =>
-            updateProgress(selectedProblem.id, toggleReview(selectedProblem.progress))
-          }
+          onToggleFavorite={() => void updateProgress(selectedProblem.id, { favorite: !selectedProblem.progress.favorite })}
+          onToggleReview={() => void updateProgress(selectedProblem.id, { reviewRequired: !selectedProblem.progress.reviewRequired })}
+          progressPending={progressPending[selectedProblem.id] === true}
+          onOpenHistory={() => setHistoryForProblem(selectedProblem.id)}
           onSubmissionComplete={refreshAfterSubmission}
         />
       )}
+      {historyForProblem && <SubmissionHistoryPanel problemId={historyForProblem} onClose={() => setHistoryForProblem(null)} />}
     </main>
   )
 }
@@ -349,90 +369,6 @@ function Notice({ message, onDismiss }: { message: string; onDismiss: () => void
   )
 }
 
-function Dashboard({ problems, onOpen }: { problems: ProblemSummary[]; onOpen: () => void }) {
-  const solved = problems.filter((problem) => problem.progress.status === 'SOLVED').length
-  const attempted = problems.filter((problem) => problem.progress.attempts > 0 && problem.progress.status !== 'SOLVED').length
-  const total = problems.length
-  const completion = total === 0 ? 0 : Math.round((solved / total) * 100)
-  const nextProblem = problems.find((problem) => problem.progress.status !== 'SOLVED')
-
-  return (
-    <div className="flex flex-col gap-8">
-      <div>
-        <p className="mb-2 text-sm text-muted-foreground">Prática local de Java</p>
-        <h1 className="text-3xl font-semibold tracking-tight">Seu espaço de estudos.</h1>
-        <p className="mt-2 text-muted-foreground">Resolva exercícios, acompanhe tentativas e revise seus pontos fracos.</p>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Exercícios resolvidos" value={`${solved}`} detail={`de ${total}`} />
-        <Metric label="Progresso geral" value={`${completion}%`} detail={total === 0 ? 'sem exercícios' : 'do catálogo atual'} />
-        <Metric label="Em andamento" value={`${attempted}`} detail="com tentativa registrada" />
-        <Metric label="Para revisar" value={`${problems.filter((problem) => problem.progress.reviewRequired).length}`} detail="marcados por você" />
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.35fr_1fr]">
-        <div className="rounded-xl border border-border bg-card p-6">
-          <div className="mb-6 flex justify-between">
-            <div>
-              <h2 className="font-semibold">Progresso por dificuldade</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Seu avanço em cada nível</p>
-            </div>
-            <BarChart3 className="size-5 text-muted-foreground" />
-          </div>
-          <div className="flex flex-col gap-5">
-            {(['EASY', 'MEDIUM', 'HARD'] as Difficulty[]).map((level) => {
-              const levelProblems = problems.filter((problem) => problem.difficulty === level)
-              const levelSolved = levelProblems.filter((problem) => problem.progress.status === 'SOLVED').length
-              const percentage = levelProblems.length === 0 ? 0 : Math.round((levelSolved / levelProblems.length) * 100)
-              return (
-                <div key={level}>
-                  <div className="mb-2 flex justify-between text-sm">
-                    <span className="font-medium">{difficultyLabels[level]}</span>
-                    <span className="text-muted-foreground">{levelSolved} / {levelProblems.length}</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-muted" aria-label={`${percentage}% resolvido`}>
-                    <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${percentage}%` }} />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-6">
-          <h2 className="font-semibold">Próximo exercício</h2>
-          <p className="mt-2 text-sm text-muted-foreground">Continue sua sequência com um novo desafio.</p>
-          {nextProblem ? (
-            <button onClick={onOpen} className="mt-6 flex w-full items-center justify-between rounded-lg border border-border p-4 text-left hover:bg-muted">
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{nextProblem.title}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{difficultyLabels[nextProblem.difficulty]} · {formatCategory(nextProblem.categories[0])}</span>
-              </span>
-              <ArrowUpRight className="size-4 shrink-0" />
-            </button>
-          ) : (
-            <p className="mt-6 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">Todos os exercícios foram resolvidos.</p>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-5">
-      <div className="mb-4 flex justify-between">
-        <span className="text-sm text-muted-foreground">{label}</span>
-        <ArrowUpRight className="size-4 text-muted-foreground" />
-      </div>
-      <p className="text-2xl font-semibold">{value}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
-    </div>
-  )
-}
-
 function Exercises({
   problems,
   activeView,
@@ -443,6 +379,7 @@ function Exercises({
   onSelect,
   onToggleFavorite,
   onToggleReview,
+  progressPending,
 }: {
   problems: ProblemSummary[]
   activeView: View
@@ -453,6 +390,7 @@ function Exercises({
   onSelect: (problem: ProblemSummary) => void
   onToggleFavorite: (problem: ProblemSummary) => void
   onToggleReview: (problem: ProblemSummary) => void
+  progressPending: Record<string, boolean>
 }) {
   const heading = activeView === 'Exercícios' ? 'Exercícios' : activeView
   const description = activeView === 'Favoritos' ? 'Acesse rapidamente os exercícios que você marcou.' : activeView === 'Revisões' ? 'Retome os exercícios que precisam de mais uma tentativa.' : 'Pratique, acompanhe e melhore suas habilidades.'
@@ -514,10 +452,10 @@ function Exercises({
               <span className="hidden truncate text-xs text-muted-foreground md:block">{problem.categories.map(formatCategory).join(' · ')}</span>
               <span className="hidden text-xs text-muted-foreground md:block">{statusLabels[problem.progress.status]}</span>
               <div className="flex items-center justify-end gap-1">
-                <button onClick={() => onToggleFavorite(problem)} className="rounded-md p-2 hover:bg-muted" aria-label={`${problem.progress.favorite ? 'Remover dos' : 'Adicionar aos'} favoritos`}>
+                <button disabled={progressPending[problem.id] === true} onClick={() => onToggleFavorite(problem)} className="rounded-md p-2 hover:bg-muted disabled:cursor-wait disabled:opacity-50" aria-label={`${problem.progress.favorite ? 'Remover dos' : 'Adicionar aos'} favoritos`}>
                   <Heart className={`size-4 ${problem.progress.favorite ? 'fill-current' : ''}`} />
                 </button>
-                <button onClick={() => onToggleReview(problem)} className="hidden rounded-md p-2 hover:bg-muted sm:block" aria-label={`${problem.progress.reviewRequired ? 'Remover da' : 'Marcar para'} revisão`}>
+                <button disabled={progressPending[problem.id] === true} onClick={() => onToggleReview(problem)} className="hidden rounded-md p-2 hover:bg-muted disabled:cursor-wait disabled:opacity-50 sm:block" aria-label={`${problem.progress.reviewRequired ? 'Remover da' : 'Marcar para'} revisão`}>
                   <BookOpen className={`size-4 ${problem.progress.reviewRequired ? 'fill-current' : ''}`} />
                 </button>
               </div>
@@ -640,11 +578,13 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (fi
   )
 }
 
-function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, onSubmissionComplete }: {
+function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, progressPending, onOpenHistory, onSubmissionComplete }: {
   problem: ProblemDetails
   onClose: () => void
   onToggleFavorite: () => void
   onToggleReview: () => void
+  progressPending: boolean
+  onOpenHistory: () => void
   onSubmissionComplete: (problemId: string) => Promise<string | null>
 }) {
   const [left, setLeft] = useState(46)
@@ -731,12 +671,13 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, onSubm
           <span className="truncate text-sm font-medium">{problem.title}</span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onToggleReview} className={`hidden rounded-lg border border-border px-3 py-2 text-sm sm:flex ${problem.progress.reviewRequired ? 'bg-secondary' : ''}`}>
+          <button disabled={progressPending} onClick={onToggleReview} className={`hidden rounded-lg border border-border px-3 py-2 text-sm disabled:cursor-wait disabled:opacity-50 sm:flex ${problem.progress.reviewRequired ? 'bg-secondary' : ''}`}>
             <BookOpen className="mr-2 size-4" />{problem.progress.reviewRequired ? 'Revisão marcada' : 'Revisar'}
           </button>
-          <button onClick={onToggleFavorite} className={`hidden rounded-lg border border-border px-3 py-2 text-sm sm:flex ${problem.progress.favorite ? 'bg-secondary' : ''}`}>
+          <button disabled={progressPending} onClick={onToggleFavorite} className={`hidden rounded-lg border border-border px-3 py-2 text-sm disabled:cursor-wait disabled:opacity-50 sm:flex ${problem.progress.favorite ? 'bg-secondary' : ''}`}>
             <Heart className={`mr-2 size-4 ${problem.progress.favorite ? 'fill-current' : ''}`} />Favoritar
           </button>
+          <button onClick={onOpenHistory} aria-label="Histórico" className="flex items-center rounded-lg border border-border px-3 py-2 text-sm"><Clock3 className="size-4 sm:mr-2" /><span className="hidden sm:inline">Histórico</span></button>
           <button disabled={pendingAction !== null || syncingProgress} onClick={() => void execute('Run')} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50">
             <Play className="size-4" />{pendingAction === 'Run' ? 'Executando...' : 'Run'}
           </button>

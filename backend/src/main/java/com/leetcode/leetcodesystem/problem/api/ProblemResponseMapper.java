@@ -28,7 +28,7 @@ public class ProblemResponseMapper {
                 problem.getTitle(),
                 problem.getDifficulty(),
                 categories(problem),
-                progress(problem.getProgress())
+                toProgress(problem.getProgress())
         );
     }
 
@@ -59,8 +59,12 @@ public class ProblemResponseMapper {
                 problem.getStarterCode(),
                 publicTestCases,
                 hiddenTestCases,
-                progress(problem.getProgress())
+                toProgress(problem.getProgress())
         );
+    }
+
+    public ProblemProgressResponse toProgress(ProblemProgressEntity progress) {
+        return toProgressResponse(progress);
     }
 
     private List<String> categories(ProblemEntity problem) {
@@ -70,7 +74,7 @@ public class ProblemResponseMapper {
                 .toList();
     }
 
-    private ProblemProgressResponse progress(ProblemProgressEntity progress) {
+    private ProblemProgressResponse toProgressResponse(ProblemProgressEntity progress) {
         if (progress == null) {
             return new ProblemProgressResponse(
                     com.leetcode.leetcodesystem.problem.domain.ProgressStatus.NOT_STARTED,
@@ -80,7 +84,7 @@ public class ProblemResponseMapper {
             );
         }
         return new ProblemProgressResponse(
-                progress.getStatus(),
+                progress.getEffectiveStatus(),
                 progress.getAttempts(),
                 progress.isFavorite(),
                 progress.isReviewRequired()

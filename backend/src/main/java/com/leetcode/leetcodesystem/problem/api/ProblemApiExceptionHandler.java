@@ -5,6 +5,7 @@ import com.leetcode.leetcodesystem.problem.importer.PackageFileTooLargeException
 import com.leetcode.leetcodesystem.problem.importer.PackageValidationException;
 import com.leetcode.leetcodesystem.problem.importer.ValidationErrorDetail;
 import com.leetcode.leetcodesystem.problem.judge.RunnerUnavailableException;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
@@ -87,6 +89,46 @@ public class ProblemApiExceptionHandler {
         ));
     }
 
+    @ExceptionHandler(InvalidProgressUpdateException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidProgress(InvalidProgressUpdateException exception) {
+        return ResponseEntity.badRequest().body(new ApiErrorResponse(
+                "INVALID_PROGRESS_UPDATE",
+                exception.getMessage(),
+                List.of()
+        ));
+    }
+
+    @ExceptionHandler(InvalidSubmissionQueryException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidSubmissionQuery(InvalidSubmissionQueryException exception) {
+        return ResponseEntity.badRequest().body(new ApiErrorResponse(
+                "INVALID_SUBMISSION_QUERY",
+                exception.getMessage(),
+                List.of()
+        ));
+    }
+
+    @ExceptionHandler(SubmissionNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleSubmissionNotFound(SubmissionNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiErrorResponse(
+                "SUBMISSION_NOT_FOUND",
+                exception.getMessage(),
+                List.of()
+        ));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleTypeMismatch(
+            MethodArgumentTypeMismatchException exception,
+            HttpServletRequest request
+    ) {
+        boolean submissionQuery = request.getRequestURI().equals("/api/submissions");
+        return ResponseEntity.badRequest().body(new ApiErrorResponse(
+                submissionQuery ? "INVALID_SUBMISSION_QUERY" : "INVALID_REQUEST",
+                "Parâmetro inválido: " + exception.getName() + ".",
+                List.of()
+        ));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiErrorResponse> handleInvalidRequest(MethodArgumentNotValidException exception) {
         List<ValidationErrorDetail> errors = exception.getBindingResult().getFieldErrors().stream()
@@ -100,10 +142,14 @@ public class ProblemApiExceptionHandler {
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiErrorResponse> handleUnreadableRequest(HttpMessageNotReadableException exception) {
+    public ResponseEntity<ApiErrorResponse> handleUnreadableRequest(
+            HttpMessageNotReadableException exception,
+            HttpServletRequest request
+    ) {
+        boolean progressUpdate = request.getRequestURI().matches("/api/problems/[^/]+/progress");
         return ResponseEntity.badRequest().body(new ApiErrorResponse(
-                "CODE_REQUIRED",
-                "Envie um corpo JSON com o campo code.",
+                progressUpdate ? "INVALID_PROGRESS_UPDATE" : "CODE_REQUIRED",
+                progressUpdate ? "Envie um objeto JSON com favorite e/ou reviewRequired." : "Envie um corpo JSON com o campo code.",
                 List.of()
         ));
     }

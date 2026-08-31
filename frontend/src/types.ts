@@ -117,3 +117,51 @@ export type CodeExecutionResult = {
   compilationError?: string | null
   runtimeError?: string | null
 }
+
+export type SubmissionSummary = {
+  id: string
+  problemId: string
+  problemTitle: string
+  status: JudgeStatus
+  testsPassed: number
+  totalTests: number
+  executionTimeMs: number
+  submittedAt: string
+}
+
+export type SubmissionPage = {
+  items: SubmissionSummary[]
+  page: number
+  size: number
+  totalItems: number
+  totalPages: number
+}
+
+export type SubmissionDetail = SubmissionSummary & {
+  code: string
+}
+
+export type DashboardResponse = {
+  summary: {
+    totalProblems: number
+    solvedProblems: number
+    remainingProblems: number
+    attemptedProblems: number
+    completionPercentage: number
+    favoriteProblems: number
+    reviewProblems: number
+  }
+  byDifficulty: {
+    difficulty: Difficulty
+    totalProblems: number
+    solvedProblems: number
+    completionPercentage: number
+  }[]
+  byCategory: {
+    category: string
+    totalProblems: number
+    solvedProblems: number
+    completionPercentage: number
+  }[]
+  recentSubmissions: SubmissionSummary[]
+}

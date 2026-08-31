@@ -5,6 +5,10 @@ import type {
   PackageValidationResponse,
   ProblemDetails,
   ProblemSummary,
+  DashboardResponse,
+  ProblemProgress,
+  SubmissionDetail,
+  SubmissionPage,
 } from '../types'
 
 type BackendProblemDetails = Omit<ProblemDetails, 'starterCode'> & {
@@ -85,4 +89,31 @@ export function runProblem(id: string, code: string): Promise<CodeExecutionResul
 
 export function submitProblem(id: string, code: string): Promise<CodeExecutionResult> {
   return executeProblem(id, 'submit', code)
+}
+
+export type ProgressUpdate = Partial<Pick<ProblemProgress, 'favorite' | 'reviewRequired'>>
+
+export function updateProblemProgress(id: string, change: ProgressUpdate): Promise<ProblemProgress> {
+  return request<ProblemProgress>(`/api/problems/${encodeURIComponent(id)}/progress`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(change),
+  })
+}
+
+export function fetchSubmissions(options: { page?: number; size?: number; problemId?: string; status?: string } = {}): Promise<SubmissionPage> {
+  const params = new URLSearchParams()
+  params.set('page', String(options.page ?? 0))
+  params.set('size', String(options.size ?? 20))
+  if (options.problemId) params.set('problemId', options.problemId)
+  if (options.status) params.set('status', options.status)
+  return request<SubmissionPage>(`/api/submissions?${params.toString()}`)
+}
+
+export function fetchSubmission(id: string): Promise<SubmissionDetail> {
+  return request<SubmissionDetail>(`/api/submissions/${encodeURIComponent(id)}`)
+}
+
+export function fetchDashboard(): Promise<DashboardResponse> {
+  return request<DashboardResponse>('/api/dashboard')
 }

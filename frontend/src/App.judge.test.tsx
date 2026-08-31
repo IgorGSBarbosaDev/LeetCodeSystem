@@ -44,6 +44,17 @@ const details: ProblemDetails = {
   hiddenTestCaseCount: 1,
 }
 
+const dashboard = {
+  summary: { totalProblems: 1, solvedProblems: 1, remainingProblems: 0, attemptedProblems: 0, completionPercentage: 100, favoriteProblems: 0, reviewProblems: 0 },
+  byDifficulty: [
+    { difficulty: 'EASY' as const, totalProblems: 1, solvedProblems: 1, completionPercentage: 100 },
+    { difficulty: 'MEDIUM' as const, totalProblems: 0, solvedProblems: 0, completionPercentage: 0 },
+    { difficulty: 'HARD' as const, totalProblems: 0, solvedProblems: 0, completionPercentage: 0 },
+  ],
+  byCategory: [{ category: 'ARRAY', totalProblems: 1, solvedProblems: 0, completionPercentage: 0 }],
+  recentSubmissions: [],
+}
+
 const wrongRun: CodeExecutionResult = {
   status: 'WRONG_ANSWER',
   testsPassed: 0,
@@ -74,9 +85,16 @@ describe('Judge integration in the solver', () => {
     const user = userEvent.setup()
     const solvedSummary = { ...summary, progress: { ...summary.progress, status: 'SOLVED' as const, attempts: 1 } }
     const solvedDetails = { ...details, progress: solvedSummary.progress }
+    let dashboardReads = 0
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input)
       const method = init?.method ?? 'GET'
+      if (url === '/api/dashboard' && method === 'GET') return response(++dashboardReads === 1 ? {
+        ...dashboard,
+        summary: { ...dashboard.summary, solvedProblems: 0, remainingProblems: 1, completionPercentage: 0 },
+        byDifficulty: dashboard.byDifficulty.map((level) => level.difficulty === 'EASY' ? { ...level, solvedProblems: 0, completionPercentage: 0 } : level),
+        byCategory: dashboard.byCategory.map((category) => ({ ...category, solvedProblems: 0, completionPercentage: 0 })),
+      } : dashboard)
       if (url === '/api/problems' && method === 'GET') {
         return response(fetchMock.mock.calls.filter(([request, requestInit]) => String(request) === '/api/problems' && (requestInit?.method ?? 'GET') === 'GET').length > 1 ? [solvedSummary] : [summary])
       }
@@ -114,12 +132,14 @@ describe('Judge integration in the solver', () => {
     await user.click(screen.getByRole('button', { name: 'Dashboard' }))
     await waitFor(() => expect(screen.getByText('Exercícios resolvidos').parentElement?.parentElement).toHaveTextContent('1'))
     expect(screen.getByText('100%')).toBeInTheDocument()
+    expect(dashboardReads).toBeGreaterThan(1)
   })
 
   it('shows a request error and prevents an empty-code request', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input)
+      if (url === '/api/dashboard' && !init?.method) return response(dashboard)
       if (url === '/api/problems' && !init?.method) return response([summary])
       if (url === '/api/problems/two-sum-001' && !init?.method) return response(details)
       return new Response(JSON.stringify({ code: 'RUNNER_UNAVAILABLE', message: 'Java Runner indisponível.', errors: [] }), { status: 500 })
@@ -145,6 +165,7 @@ describe('Judge integration in the solver', () => {
     const pendingRun = new Promise<Response>((resolve) => { resolveRun = resolve })
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input)
+      if (url === '/api/dashboard' && !init?.method) return response(dashboard)
       if (url === '/api/problems' && !init?.method) return response([summary])
       if (url === '/api/problems/two-sum-001' && !init?.method) return response(details)
       if (url === '/api/problems/two-sum-001/run' && init?.method === 'POST') return pendingRun
@@ -174,6 +195,7 @@ describe('Judge integration in the solver', () => {
     let detailReads = 0
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input)
+      if (url === '/api/dashboard' && !init?.method) return response(dashboard)
       if (url === '/api/problems' && !init?.method) return response(++catalogReads === 1 ? [summary] : [attemptedSummary])
       if (url === '/api/problems/two-sum-001' && !init?.method) return response(++detailReads === 1 ? details : attemptedDetails)
       if (url === '/api/problems/two-sum-001/submit' && init?.method === 'POST') return response(wrongRun)
@@ -200,6 +222,7 @@ describe('Judge integration in the solver', () => {
     let detailReads = 0
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input)
+      if (url === '/api/dashboard' && !init?.method) return response(dashboard)
       if (url === '/api/problems' && !init?.method) {
         catalogReads += 1
         if (catalogReads === 1) return response([summary])
@@ -223,5 +246,103 @@ describe('Judge integration in the solver', () => {
     expect(await screen.findAllByText('Accepted')).toHaveLength(3)
     expect(await screen.findByRole('alert')).toHaveTextContent('Submissão concluída, mas não foi possível recarregar todo o progresso.')
     expect(fetchMock.mock.calls.filter(([request, requestInit]) => String(request).endsWith('/submit') && requestInit?.method === 'POST')).toHaveLength(1)
+  })
+
+  it('persists favorite and review toggles and keeps review independent from status', async () => {
+    const user = userEvent.setup()
+    let dashboardReads = 0
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/dashboard' && !init?.method) return response(++dashboardReads === 1 ? dashboard : { ...dashboard, summary: { ...dashboard.summary, favoriteProblems: 1, reviewProblems: 1 } })
+      if (url === '/api/problems' && !init?.method) return response([summary])
+      if (url === '/api/problems/two-sum-001' && !init?.method) return response(details)
+      if (url.startsWith('/api/submissions?') && !init?.method) return response({ items: [], page: 0, size: 20, totalItems: 0, totalPages: 0 })
+      if (url === '/api/problems/two-sum-001/progress' && init?.method === 'PATCH') {
+        const change = JSON.parse(String(init.body)) as Partial<ProblemSummary['progress']>
+        return response({ ...summary.progress, ...change })
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`)
+    })
+
+    render(<App />)
+    await screen.findByText('Seu espaço de estudos.')
+    await user.click(screen.getByRole('button', { name: 'Exercícios' }))
+    await user.click(screen.getByRole('button', { name: 'Adicionar aos favoritos' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remover dos favoritos' })).toBeInTheDocument())
+    expect(fetchMock.mock.calls.some(([input, requestInit]) => String(input).endsWith('/progress') && requestInit?.method === 'PATCH' && requestInit.body === JSON.stringify({ favorite: true }))).toBe(true)
+
+    await user.click(screen.getByRole('button', { name: 'Marcar para revisão' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remover da revisão' })).toBeInTheDocument())
+    expect(fetchMock.mock.calls.some(([input, requestInit]) => String(input).endsWith('/progress') && requestInit?.method === 'PATCH' && requestInit.body === JSON.stringify({ reviewRequired: true }))).toBe(true)
+    expect(screen.getByText('Não iniciado')).toBeInTheDocument()
+    expect(dashboardReads).toBeGreaterThanOrEqual(3)
+  })
+
+  it('blocks duplicate progress mutations while saving and preserves state after a failure', async () => {
+    const user = userEvent.setup()
+    let resolvePatch!: (value: Response) => void
+    let rejectPatch = false
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/dashboard' && !init?.method) return response(dashboard)
+      if (url === '/api/problems' && !init?.method) return response([summary])
+      if (url === '/api/problems/two-sum-001/progress' && init?.method === 'PATCH') {
+        if (rejectPatch) return new Response(JSON.stringify({ code: 'INVALID_PROGRESS_UPDATE', message: 'Progresso indisponível.', errors: [] }), { status: 400 })
+        return new Promise<Response>((resolve) => { resolvePatch = resolve })
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`)
+    })
+
+    render(<App />)
+    await screen.findByText('Seu espaço de estudos.')
+    await user.click(screen.getByRole('button', { name: 'Exercícios' }))
+    const favorite = screen.getByRole('button', { name: 'Adicionar aos favoritos' })
+    await user.click(favorite)
+    expect(favorite).toBeDisabled()
+    resolvePatch(response({ ...summary.progress, favorite: true }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remover dos favoritos' })).not.toBeDisabled())
+
+    rejectPatch = true
+    await user.click(screen.getByRole('button', { name: 'Remover dos favoritos' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Progresso indisponível.')
+    expect(screen.getByRole('button', { name: 'Remover dos favoritos' })).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([request, requestInit]) => String(request).endsWith('/progress') && requestInit?.method === 'PATCH')).toHaveLength(2)
+  })
+
+  it('applies pessimistic progress updates in the open exercise editor', async () => {
+    const user = userEvent.setup()
+    let resolvePatch!: (value: Response) => void
+    let failPatch = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/dashboard' && !init?.method) return response(dashboard)
+      if (url === '/api/problems' && !init?.method) return response([summary])
+      if (url === '/api/problems/two-sum-001' && !init?.method) return response(details)
+      if (url.startsWith('/api/submissions?') && !init?.method) return response({ items: [], page: 0, size: 20, totalItems: 0, totalPages: 0 })
+      if (url === '/api/problems/two-sum-001/progress' && init?.method === 'PATCH') {
+        if (failPatch) return new Response(JSON.stringify({ code: 'INVALID_PROGRESS_UPDATE', message: 'Editor offline.', errors: [] }), { status: 400 })
+        return new Promise<Response>((resolve) => { resolvePatch = resolve })
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`)
+    })
+
+    render(<App />)
+    await screen.findByText('Seu espaço de estudos.')
+    await user.click(screen.getByRole('button', { name: 'Exercícios' }))
+    await user.click(screen.getByRole('button', { name: 'Two Sum' }))
+    await user.click((await screen.findAllByRole('button', { name: 'Histórico' })).at(-1)!)
+    expect(await screen.findByText('Submissões anteriores deste exercício')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Fechar histórico' }))
+    const review = await screen.findByRole('button', { name: 'Revisar' })
+    await user.click(review)
+    expect(review).toBeDisabled()
+    resolvePatch(response({ ...summary.progress, reviewRequired: true }))
+    const markedReview = await screen.findByRole('button', { name: 'Revisão marcada' })
+    expect(markedReview).not.toBeDisabled()
+
+    failPatch = true
+    await user.click(markedReview)
+    expect(await screen.findByRole('status')).toHaveTextContent('Editor offline.')
+    expect(screen.getByRole('button', { name: 'Revisão marcada' })).toBeInTheDocument()
   })
 })

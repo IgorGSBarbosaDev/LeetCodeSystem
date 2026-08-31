@@ -78,7 +78,30 @@ public class ProblemProgressEntity {
         return reviewRequired;
     }
 
+    /**
+     * REVIEW was used by an earlier version as a status as well as a flag.
+     * Keep reading those rows compatible while exposing the activity status
+     * independently from the review marker.
+     */
+    public ProgressStatus getEffectiveStatus() {
+        if (status != ProgressStatus.REVIEW) {
+            return status;
+        }
+        return statusFromHistory();
+    }
+
+    public void updatePreferences(Boolean favorite, Boolean reviewRequired) {
+        if (favorite != null) {
+            this.favorite = favorite;
+        }
+        if (reviewRequired != null) {
+            this.reviewRequired = reviewRequired;
+        }
+        normalizeLegacyReviewStatus();
+    }
+
     public void recordSubmission(boolean accepted, Instant submittedAt) {
+        normalizeLegacyReviewStatus();
         attempts++;
         lastAttemptAt = submittedAt;
 
@@ -93,5 +116,18 @@ public class ProblemProgressEntity {
         if (status == ProgressStatus.NOT_STARTED || status == ProgressStatus.ATTEMPTED) {
             status = ProgressStatus.ATTEMPTED;
         }
+    }
+
+    private void normalizeLegacyReviewStatus() {
+        if (status == ProgressStatus.REVIEW) {
+            status = statusFromHistory();
+        }
+    }
+
+    private ProgressStatus statusFromHistory() {
+        if (firstSolvedAt != null) {
+            return ProgressStatus.SOLVED;
+        }
+        return attempts > 0 ? ProgressStatus.ATTEMPTED : ProgressStatus.NOT_STARTED;
     }
 }

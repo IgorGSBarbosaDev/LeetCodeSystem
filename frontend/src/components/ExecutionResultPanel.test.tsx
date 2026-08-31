@@ -1,4 +1,5 @@
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import type { CodeExecutionResult } from '../types'
@@ -33,13 +34,52 @@ const baseResult: CodeExecutionResult = {
 }
 
 describe('ExecutionResultPanel', () => {
-  it('renders the summary and public test details', () => {
+  it('renders the summary and public test details', async () => {
+    const user = userEvent.setup()
     render(<ExecutionResultPanel action="Run" result={baseResult} pending={false} error={null} syncing={false} />)
 
     expect(screen.getAllByText('Wrong Answer')).toHaveLength(2)
     expect(screen.getAllByRole('status')[0]).toHaveTextContent('1 / 2 testes aprovados')
-    expect(screen.getByText(/"value": 1/)).toBeInTheDocument()
-    expect(screen.getByText(/Output esperado/i)).toBeInTheDocument()
+
+    expect(screen.getByTestId('test-result-0')).not.toHaveTextContent(/"value": 1/)
+    await user.click(screen.getByRole('button', { name: 'Alternar detalhes de Teste 1' }))
+    expect(await screen.findByText(/"value": 1/)).toBeInTheDocument()
+    expect(screen.getByText(/Saída esperada/i)).toBeInTheDocument()
+  })
+
+  it('opens failed public tests and keeps passing tests compact', async () => {
+    const user = userEvent.setup()
+    const result: CodeExecutionResult = {
+      ...baseResult,
+      testResults: [
+        {
+          index: 0,
+          hidden: false,
+          status: 'WRONG_ANSWER',
+          input: { value: 1 },
+          expectedOutput: 2,
+          actualOutput: 1,
+          executionTimeMs: 4,
+        },
+        {
+          index: 1,
+          hidden: false,
+          status: 'ACCEPTED',
+          input: { value: 2 },
+          expectedOutput: 3,
+          actualOutput: 3,
+          executionTimeMs: 5,
+        },
+      ],
+    }
+
+    render(<ExecutionResultPanel action="Run" result={result} pending={false} error={null} syncing={false} />)
+
+    expect(screen.getByTestId('test-result-0')).toHaveTextContent(/"value": 1/)
+    expect(screen.getByTestId('test-result-1')).not.toHaveTextContent(/"value": 2/)
+
+    await user.click(screen.getByRole('button', { name: 'Alternar detalhes de Teste 2' }))
+    expect(screen.getByTestId('test-result-1')).toHaveTextContent(/"value": 2/)
   })
 
   it('does not render hidden test data', () => {
@@ -49,6 +89,7 @@ describe('ExecutionResultPanel', () => {
     expect(hiddenTest).toHaveTextContent('Teste oculto 2')
     expect(hiddenTest).toHaveTextContent('Wrong Answer')
     expect(hiddenTest).toHaveTextContent('8 ms')
+    expect(within(hiddenTest).queryByRole('button')).not.toBeInTheDocument()
     expect(hiddenTest).not.toHaveTextContent('SEGREDO')
     expect(hiddenTest).not.toHaveTextContent('OUTPUT_SECRETO')
     expect(hiddenTest).not.toHaveTextContent('RECEBIDO_SECRETO')

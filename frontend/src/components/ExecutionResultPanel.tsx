@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
   CircleX,
   Clock3,
   EyeOff,
@@ -10,6 +11,10 @@ import {
   TimerOff,
 } from 'lucide-react'
 
+import { Badge } from './ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
+import { Separator } from './ui/separator'
 import type { CodeExecutionResult, JudgeStatus, JsonValue } from '../types'
 
 type ExecutionResultPanelProps = {
@@ -29,12 +34,28 @@ const statusLabels: Record<JudgeStatus, string> = {
   TIME_LIMIT_EXCEEDED: 'Time Limit Exceeded',
 }
 
+const statusDescriptions: Record<JudgeStatus, string> = {
+  ACCEPTED: 'A solução passou por todos os casos avaliados.',
+  WRONG_ANSWER: 'Pelo menos um caso retornou um valor diferente do esperado.',
+  COMPILATION_ERROR: 'O código não pôde ser compilado.',
+  RUNTIME_ERROR: 'A solução falhou durante a execução.',
+  TIME_LIMIT_EXCEEDED: 'A solução ultrapassou o tempo máximo permitido.',
+}
+
 const statusClasses: Record<JudgeStatus, string> = {
   ACCEPTED: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
   WRONG_ANSWER: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
   COMPILATION_ERROR: 'border-destructive/40 bg-destructive/10 text-destructive',
   RUNTIME_ERROR: 'border-destructive/40 bg-destructive/10 text-destructive',
   TIME_LIMIT_EXCEEDED: 'border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300',
+}
+
+const statusSummaryClasses: Record<JudgeStatus, string> = {
+  ACCEPTED: 'border-emerald-500/30 bg-emerald-500/[0.06]',
+  WRONG_ANSWER: 'border-amber-500/30 bg-amber-500/[0.06]',
+  COMPILATION_ERROR: 'border-destructive/30 bg-destructive/[0.05]',
+  RUNTIME_ERROR: 'border-destructive/30 bg-destructive/[0.05]',
+  TIME_LIMIT_EXCEEDED: 'border-orange-500/30 bg-orange-500/[0.06]',
 }
 
 function formatValue(value: JsonValue | undefined): string {
@@ -53,111 +74,204 @@ function StatusIcon({ status }: { status: JudgeStatus }) {
 
 function ResultBlock({ label, value }: { label: string; value: JsonValue | undefined }) {
   return (
-    <div>
-      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
-      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 p-3 text-xs leading-5 text-foreground">{formatValue(value)}</pre>
+    <div className="min-w-0">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+      <pre className="min-h-20 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/80 bg-muted/35 p-3 font-mono text-xs leading-5 text-foreground">{formatValue(value)}</pre>
     </div>
   )
 }
 
-function TestResult({ test }: { test: CodeExecutionResult['testResults'][number] }) {
+function TestResultHeader({ test, interactive }: { test: CodeExecutionResult['testResults'][number]; interactive: boolean }) {
   const label = test.hidden ? `Teste oculto ${test.index + 1}` : `Teste ${test.index + 1}`
+  const content = (
+    <>
+      <span className={`flex size-7 shrink-0 items-center justify-center rounded-full ${statusClasses[test.status]}`}>
+        <StatusIcon status={test.status} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{label}</span>
+        {test.hidden && <span className="mt-0.5 block text-xs text-muted-foreground">Resultado resumido para preservar o caso oculto</span>}
+      </span>
+      <Badge variant="outline" className={`hidden shrink-0 sm:inline-flex ${statusClasses[test.status]}`}>
+        {statusLabels[test.status]}
+      </Badge>
+      {test.hidden && (
+        <Badge variant="secondary" className="hidden shrink-0 items-center gap-1 sm:inline-flex">
+          <EyeOff className="size-3" aria-hidden="true" /> Oculto
+        </Badge>
+      )}
+      <span className="inline-flex shrink-0 items-center gap-1 text-xs tabular-nums text-muted-foreground">
+        <Clock3 className="size-3.5" aria-hidden="true" />
+        {test.executionTimeMs} ms
+      </span>
+      {interactive && <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-aria-expanded:rotate-180" aria-hidden="true" />}
+    </>
+  )
+
+  if (!interactive) return <div className="flex min-h-14 items-center gap-3 px-4 py-3">{content}</div>
 
   return (
-    <article className="rounded-lg border border-border bg-background p-3" data-testid={`test-result-${test.index}`}>
-      <div className="flex flex-wrap items-center gap-2">
-        {test.hidden && <EyeOff className="size-4 text-muted-foreground" aria-hidden="true" />}
-        <h3 className="text-sm font-medium">{label}</h3>
-        <span className={`ml-auto inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium ${statusClasses[test.status]}`}>
-          <StatusIcon status={test.status} />
-          {statusLabels[test.status]}
-        </span>
-        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-          <Clock3 className="size-3" aria-hidden="true" />
-          {test.executionTimeMs} ms
-        </span>
+    <CollapsibleTrigger
+      className="group flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      aria-label={`Alternar detalhes de ${label}`}
+    >
+      {content}
+    </CollapsibleTrigger>
+  )
+}
+
+function TestResult({ test }: { test: CodeExecutionResult['testResults'][number] }) {
+  const canShowDetails = !test.hidden
+  const resultContent = canShowDetails && (
+    <CollapsibleContent className="border-t border-border px-4 py-4">
+      <div className="grid gap-4 md:grid-cols-3">
+        <ResultBlock label="Entrada" value={test.input} />
+        <ResultBlock label="Saída esperada" value={test.expectedOutput} />
+        <ResultBlock label="Saída recebida" value={test.actualOutput} />
       </div>
 
-      {!test.hidden && (
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
-          <ResultBlock label="Input" value={test.input} />
-          <ResultBlock label="Output esperado" value={test.expectedOutput} />
-          <ResultBlock label="Output recebido" value={test.actualOutput} />
+      {test.error && (
+        <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+          <p className="mb-1 font-semibold">Erro neste teste</p>
+          <pre className="whitespace-pre-wrap break-words font-mono leading-5">{test.error}</pre>
         </div>
       )}
+    </CollapsibleContent>
+  )
 
-      {!test.hidden && test.error && (
-        <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
-          <p className="mb-1 font-semibold">Erro do teste</p>
-          <pre className="whitespace-pre-wrap break-words">{test.error}</pre>
+  if (!canShowDetails) {
+    return (
+      <div className="overflow-hidden rounded-xl border border-border bg-background shadow-xs" data-testid={`test-result-${test.index}`}>
+        <TestResultHeader test={test} interactive={false} />
+      </div>
+    )
+  }
+
+  return (
+    <Collapsible
+      defaultOpen={test.status !== 'ACCEPTED'}
+      className="overflow-hidden rounded-xl border border-border bg-background shadow-xs"
+      data-testid={`test-result-${test.index}`}
+    >
+      <TestResultHeader test={test} interactive />
+      {resultContent}
+    </Collapsible>
+  )
+}
+
+function GlobalError({ label, message }: { label: string; message: string }) {
+  return (
+    <Card className="border-destructive/30 bg-destructive/[0.04] shadow-none" role="alert">
+      <CardHeader className="gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <CardTitle className="flex items-center gap-2 text-sm text-destructive">
+          <AlertCircle className="size-4" aria-hidden="true" />
+          {label}
+        </CardTitle>
+        <span className="text-xs text-destructive/80">Corrija o código e tente novamente</span>
+      </CardHeader>
+      <CardContent className="px-4 pb-4">
+        <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-destructive/20 bg-background/70 p-3 font-mono text-xs leading-5 text-destructive">{message}</pre>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ResultSummary({ action, result }: { action: 'Run' | 'Submit'; result: CodeExecutionResult }) {
+  const progress = result.totalTests === 0 ? 0 : Math.round((result.testsPassed / result.totalTests) * 100)
+
+  return (
+    <Card className={`shrink-0 shadow-none ${statusSummaryClasses[result.status]}`} role="status">
+      <CardContent className="p-4">
+        <div className="flex flex-wrap items-start gap-3">
+          <span className={`flex size-9 shrink-0 items-center justify-center rounded-full border ${statusClasses[result.status]}`}>
+            <StatusIcon status={result.status} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-semibold">{statusLabels[result.status]}</h2>
+              <Badge variant="outline" className={statusClasses[result.status]}>{action}</Badge>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">{statusDescriptions[result.status]}</p>
+          </div>
+          <div className="text-left sm:text-right">
+            <p className="font-mono text-sm font-medium tabular-nums">{result.testsPassed} / {result.totalTests} testes aprovados</p>
+            <p className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground"><Clock3 className="size-3" aria-hidden="true" />{result.executionTimeMs} ms</p>
+          </div>
         </div>
-      )}
-    </article>
+
+        <div className="mt-4">
+          <div className="mb-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Progresso da validação</span>
+            <span className="font-mono tabular-nums">{progress}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-foreground/10" role="progressbar" aria-label="Progresso da validação" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
+            <div className={`h-full rounded-full transition-all ${result.status === 'ACCEPTED' ? 'bg-emerald-500' : result.status === 'WRONG_ANSWER' ? 'bg-amber-500' : 'bg-destructive'}`} style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
 export default function ExecutionResultPanel({ action, result, pending, error, syncing, syncError }: ExecutionResultPanelProps) {
   return (
-    <div className="border-t border-border bg-muted/30 p-4" aria-live="polite">
-      <div className="mb-3 flex items-center justify-between gap-4">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Resultado</span>
-        {result && <span className="text-xs text-muted-foreground">{action}</span>}
+    <div className="flex max-h-[52vh] min-h-0 shrink-0 flex-col border-t border-border bg-muted/25" aria-live="polite">
+      <div className="flex shrink-0 items-center justify-between gap-4 px-4 py-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Resultado</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{action === 'Run' ? 'Casos públicos' : 'Avaliação completa'}</p>
+        </div>
+        {result && <span className="text-xs text-muted-foreground">{result.testResults.length} {result.testResults.length === 1 ? 'caso exibido' : 'casos exibidos'}</span>}
       </div>
 
       {pending && (
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground" role="status">
+        <div className="mx-4 mb-4 flex items-center gap-3 rounded-xl border border-border bg-background p-4 text-sm text-muted-foreground" role="status">
           <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-          {action === 'Run' ? 'Executando testes públicos...' : 'Enviando solução para todos os testes...'}
+          <div>
+            <p className="font-medium text-foreground">{action === 'Run' ? 'Executando testes públicos' : 'Avaliando a solução'}</p>
+            <p className="mt-0.5 text-xs">Isso pode levar alguns segundos.</p>
+          </div>
         </div>
       )}
 
       {error && !pending && (
-        <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive" role="alert">
+        <div className="mx-4 mb-4 flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/[0.04] p-4 text-sm text-destructive" role="alert">
           <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          <p>{error}</p>
+          <div>
+            <p className="font-medium">Não foi possível validar a solução</p>
+            <p className="mt-1 text-xs leading-5">{error}</p>
+          </div>
         </div>
       )}
 
       {!pending && !error && !result && (
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
-          <PlayCircle className="size-4" aria-hidden="true" />
+        <div className="mx-4 mb-4 flex items-center gap-3 rounded-xl border border-dashed border-border bg-background/70 p-4 text-sm text-muted-foreground">
+          <PlayCircle className="size-4 shrink-0" aria-hidden="true" />
           Execute Run para validar os casos públicos ou Submit para avaliar a solução completa.
         </div>
       )}
 
       {!pending && !error && result && (
-        <>
-          <div className={`flex flex-wrap items-center gap-3 rounded-lg border p-4 ${statusClasses[result.status]}`} role="status">
-            <StatusIcon status={result.status} />
-            <span className="font-semibold">{statusLabels[result.status]}</span>
-            <span className="text-sm">{result.testsPassed} / {result.totalTests} testes aprovados</span>
-            <span className="ml-auto inline-flex items-center gap-1 text-xs"><Clock3 className="size-3" aria-hidden="true" />{result.executionTimeMs} ms</span>
-          </div>
+        <div className="flex min-h-0 flex-col gap-3 overflow-hidden px-4 pb-4">
+          <ResultSummary action={action} result={result} />
 
-          {syncing && <p className="mt-2 text-xs text-muted-foreground" role="status">Atualizando seu progresso...</p>}
+          {syncing && <p className="shrink-0 text-xs text-muted-foreground" role="status">Atualizando seu progresso...</p>}
+          {syncError && <p className="shrink-0 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200" role="alert">{syncError}</p>}
 
-          {syncError && <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200" role="alert">{syncError}</p>}
-
-          {result.compilationError && (
-            <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-              <p className="mb-2 font-semibold">Erro de compilação</p>
-              <pre className="whitespace-pre-wrap break-words text-xs leading-5">{result.compilationError}</pre>
-            </div>
-          )}
-
-          {result.runtimeError && (
-            <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-              <p className="mb-2 font-semibold">Erro de execução</p>
-              <pre className="whitespace-pre-wrap break-words text-xs leading-5">{result.runtimeError}</pre>
-            </div>
-          )}
+          {result.compilationError && <GlobalError label="Erro de compilação" message={result.compilationError} />}
+          {result.runtimeError && <GlobalError label="Erro de execução" message={result.runtimeError} />}
 
           {result.testResults.length > 0 && (
-            <div className="mt-3 max-h-96 space-y-3 overflow-y-auto">
+            <div className="flex min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain pr-1" data-testid="test-results-list">
+              <div className="flex shrink-0 items-center gap-3 px-1 py-1">
+                <p className="text-xs font-semibold text-foreground">Casos de teste</p>
+                <Separator className="flex-1" />
+                <p className="text-xs text-muted-foreground">Abra um caso para ver os detalhes</p>
+              </div>
               {result.testResults.map((test) => <TestResult key={`${test.index}-${test.status}`} test={test} />)}
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   )

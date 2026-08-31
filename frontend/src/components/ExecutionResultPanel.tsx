@@ -10,10 +10,10 @@ import {
   PlayCircle,
   TimerOff,
 } from 'lucide-react'
+import { useState } from 'react'
 
 import { Badge } from './ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
 import { Separator } from './ui/separator'
 import type { CodeExecutionResult, JudgeStatus, JsonValue } from '../types'
 
@@ -76,12 +76,12 @@ function ResultBlock({ label, value }: { label: string; value: JsonValue | undef
   return (
     <div className="min-w-0">
       <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
-      <pre className="min-h-20 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/80 bg-muted/35 p-3 font-mono text-xs leading-5 text-foreground">{formatValue(value)}</pre>
+      <pre className="min-h-20 whitespace-pre-wrap break-words rounded-lg border border-border/80 bg-muted/35 p-3 font-mono text-xs leading-5 text-foreground">{formatValue(value)}</pre>
     </div>
   )
 }
 
-function TestResultHeader({ test, interactive }: { test: CodeExecutionResult['testResults'][number]; interactive: boolean }) {
+function TestResultHeader({ test, open, onToggle }: { test: CodeExecutionResult['testResults'][number]; open: boolean; onToggle?: () => void }) {
   const label = test.hidden ? `Teste oculto ${test.index + 1}` : `Teste ${test.index + 1}`
   const content = (
     <>
@@ -104,58 +104,57 @@ function TestResultHeader({ test, interactive }: { test: CodeExecutionResult['te
         <Clock3 className="size-3.5" aria-hidden="true" />
         {test.executionTimeMs} ms
       </span>
-      {interactive && <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-aria-expanded:rotate-180" aria-hidden="true" />}
+      {onToggle && <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />}
     </>
   )
 
-  if (!interactive) return <div className="flex min-h-14 items-center gap-3 px-4 py-3">{content}</div>
+  if (!onToggle) return <div className="flex min-h-14 items-center gap-3 px-4 py-3">{content}</div>
 
   return (
-    <CollapsibleTrigger
+    <button
+      type="button"
       className="group flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       aria-label={`Alternar detalhes de ${label}`}
+      aria-expanded={open}
+      onClick={onToggle}
     >
       {content}
-    </CollapsibleTrigger>
+    </button>
   )
 }
 
 function TestResult({ test }: { test: CodeExecutionResult['testResults'][number] }) {
   const canShowDetails = !test.hidden
-  const resultContent = canShowDetails && (
-    <CollapsibleContent className="border-t border-border px-4 py-4">
-      <div className="grid gap-4 md:grid-cols-3">
-        <ResultBlock label="Entrada" value={test.input} />
-        <ResultBlock label="Saída esperada" value={test.expectedOutput} />
-        <ResultBlock label="Saída recebida" value={test.actualOutput} />
-      </div>
-
-      {test.error && (
-        <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
-          <p className="mb-1 font-semibold">Erro neste teste</p>
-          <pre className="whitespace-pre-wrap break-words font-mono leading-5">{test.error}</pre>
-        </div>
-      )}
-    </CollapsibleContent>
-  )
+  const [open, setOpen] = useState(canShowDetails && test.status !== 'ACCEPTED')
 
   if (!canShowDetails) {
     return (
       <div className="overflow-hidden rounded-xl border border-border bg-background shadow-xs" data-testid={`test-result-${test.index}`}>
-        <TestResultHeader test={test} interactive={false} />
+        <TestResultHeader test={test} open={false} />
       </div>
     )
   }
 
   return (
-    <Collapsible
-      defaultOpen={test.status !== 'ACCEPTED'}
-      className="overflow-hidden rounded-xl border border-border bg-background shadow-xs"
-      data-testid={`test-result-${test.index}`}
-    >
-      <TestResultHeader test={test} interactive />
-      {resultContent}
-    </Collapsible>
+    <div className="overflow-hidden rounded-xl border border-border bg-background shadow-xs" data-testid={`test-result-${test.index}`}>
+      <TestResultHeader test={test} open={open} onToggle={() => setOpen((value) => !value)} />
+      {open && (
+        <div className="border-t border-border px-4 py-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <ResultBlock label="Entrada" value={test.input} />
+            <ResultBlock label="Saída esperada" value={test.expectedOutput} />
+            <ResultBlock label="Saída recebida" value={test.actualOutput} />
+          </div>
+
+          {test.error && (
+            <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+              <p className="mb-1 font-semibold">Erro neste teste</p>
+              <pre className="whitespace-pre-wrap break-words font-mono leading-5">{test.error}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -215,7 +214,7 @@ function ResultSummary({ action, result }: { action: 'Run' | 'Submit'; result: C
 
 export default function ExecutionResultPanel({ action, result, pending, error, syncing, syncError }: ExecutionResultPanelProps) {
   return (
-    <div className="flex max-h-[52vh] min-h-0 shrink-0 flex-col border-t border-border bg-muted/25" aria-live="polite">
+    <div className={`flex min-h-0 shrink-0 flex-col overflow-hidden border-t border-border bg-muted/25 ${result ? 'h-[min(52vh,38rem)]' : 'max-h-[52vh]'}`} aria-live="polite">
       <div className="flex shrink-0 items-center justify-between gap-4 px-4 py-3">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Resultado</p>
@@ -252,7 +251,7 @@ export default function ExecutionResultPanel({ action, result, pending, error, s
       )}
 
       {!pending && !error && result && (
-        <div className="flex min-h-0 flex-col gap-3 overflow-hidden px-4 pb-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-4 pb-4">
           <ResultSummary action={action} result={result} />
 
           {syncing && <p className="shrink-0 text-xs text-muted-foreground" role="status">Atualizando seu progresso...</p>}
@@ -262,7 +261,7 @@ export default function ExecutionResultPanel({ action, result, pending, error, s
           {result.runtimeError && <GlobalError label="Erro de execução" message={result.runtimeError} />}
 
           {result.testResults.length > 0 && (
-            <div className="flex min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain pr-1" data-testid="test-results-list">
+            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1" data-testid="test-results-list">
               <div className="flex shrink-0 items-center gap-3 px-1 py-1">
                 <p className="text-xs font-semibold text-foreground">Casos de teste</p>
                 <Separator className="flex-1" />

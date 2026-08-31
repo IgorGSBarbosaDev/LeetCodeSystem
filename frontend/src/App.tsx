@@ -728,7 +728,7 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, progre
           <span className="h-12 w-1 rounded-full bg-muted-foreground/40 group-hover:bg-primary" />
         </div>
 
-        <section className="flex min-h-[420px] min-w-0 flex-1 flex-col bg-card">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-card">
           <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
             <span className="rounded-md bg-muted px-3 py-1.5 text-sm font-medium">Solução</span>
               <span className="ml-auto font-mono text-xs text-muted-foreground">Java · {problem.hiddenTestCaseCount} casos ocultos</span>

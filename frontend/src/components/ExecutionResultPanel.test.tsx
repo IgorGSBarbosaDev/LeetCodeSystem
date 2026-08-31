@@ -82,6 +82,40 @@ describe('ExecutionResultPanel', () => {
     expect(screen.getByTestId('test-result-1')).toHaveTextContent(/"value": 2/)
   })
 
+  it('keeps the complete content of multiple expanded public tests', () => {
+    const result: CodeExecutionResult = {
+      ...baseResult,
+      testResults: [
+        {
+          index: 0,
+          hidden: false,
+          status: 'WRONG_ANSWER',
+          input: { value: 1 },
+          expectedOutput: 2,
+          actualOutput: 1,
+          executionTimeMs: 4,
+        },
+        {
+          index: 1,
+          hidden: false,
+          status: 'WRONG_ANSWER',
+          input: { value: 2 },
+          expectedOutput: 4,
+          actualOutput: 3,
+          executionTimeMs: 5,
+        },
+      ],
+    }
+
+    render(<ExecutionResultPanel action="Run" result={result} pending={false} error={null} syncing={false} />)
+
+    expect(within(screen.getByTestId('test-result-0')).getByText('Saída recebida')).toBeInTheDocument()
+    expect(within(screen.getByTestId('test-result-1')).getByText('Saída recebida')).toBeInTheDocument()
+    expect(screen.getByTestId('test-results-list')).toHaveClass('flex-1', 'overflow-y-auto')
+    expect([...screen.getByTestId('test-result-0').querySelectorAll('pre')].some((element) => element.className.includes('overflow-auto'))).toBe(false)
+    expect([...screen.getByTestId('test-result-1').querySelectorAll('pre')].some((element) => element.className.includes('overflow-auto'))).toBe(false)
+  })
+
   it('does not render hidden test data', () => {
     render(<ExecutionResultPanel action="Submit" result={baseResult} pending={false} error={null} syncing={false} />)
 

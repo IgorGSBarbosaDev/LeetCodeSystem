@@ -111,11 +111,25 @@ describe('Judge integration in the solver', () => {
     await user.click(screen.getByRole('button', { name: 'Exercícios' }))
     await user.click(screen.getByRole('button', { name: 'Two Sum' }))
     await screen.findByRole('button', { name: 'Run' })
+    expect(screen.getByRole('separator', { name: 'Redimensionar enunciado e código' })).toHaveAttribute('aria-valuenow', '24')
+    expect(screen.getByRole('separator', { name: 'Redimensionar código e resultados' })).toHaveAttribute('aria-valuenow', '48')
+    expect(screen.getByRole('button', { name: 'Enunciado' })).toHaveAttribute('aria-pressed', 'true')
+    const resultPane = screen.getByRole('complementary', { name: 'Resultado da execução' })
+    expect(resultPane).toHaveClass('hidden', 'lg:flex')
 
     await user.click(screen.getByRole('button', { name: 'Run' }))
     expect(await screen.findAllByText('Wrong Answer')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'Resultado' })).toHaveAttribute('aria-pressed', 'true')
+    expect(resultPane).not.toHaveClass('hidden')
     expect(fetchMock.mock.calls.filter(([request, requestInit]) => String(request).endsWith('/run') && requestInit?.method === 'POST')).toHaveLength(1)
     expect(fetchMock.mock.calls.filter(([request]) => String(request) === '/api/problems')).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: 'Código' }))
+    expect(screen.getByRole('button', { name: 'Código' })).toHaveAttribute('aria-pressed', 'true')
+    expect(resultPane).toHaveClass('hidden')
+    await user.click(screen.getByRole('button', { name: 'Resultado' }))
+    expect(screen.getByRole('button', { name: 'Resultado' })).toHaveAttribute('aria-pressed', 'true')
+    expect(resultPane).not.toHaveClass('hidden')
 
     await user.click(screen.getByRole('button', { name: 'Submit' }))
     expect(await screen.findAllByText('Accepted')).toHaveLength(3)
@@ -133,6 +147,47 @@ describe('Judge integration in the solver', () => {
     await waitFor(() => expect(screen.getByText('Exercícios resolvidos').parentElement?.parentElement).toHaveTextContent('1'))
     expect(screen.getByText('100%')).toBeInTheDocument()
     expect(dashboardReads).toBeGreaterThan(1)
+  })
+
+  it('resizes the three solver columns with keyboard and pointer input', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url === '/api/dashboard') return response(dashboard)
+      if (url === '/api/problems') return response([summary])
+      if (url === '/api/problems/two-sum-001') return response(details)
+      throw new Error(`Unexpected request: GET ${url}`)
+    })
+
+    render(<App />)
+    await screen.findByText('Seu espaço de estudos.')
+    await user.click(screen.getByRole('button', { name: 'Exercícios' }))
+    await user.click(screen.getByRole('button', { name: 'Two Sum' }))
+    await screen.findByRole('textbox', { name: 'Editor de solução' })
+
+    const problemDivider = screen.getByRole('separator', { name: 'Redimensionar enunciado e código' })
+    const solutionDivider = screen.getByRole('separator', { name: 'Redimensionar código e resultados' })
+    fireEvent.keyDown(problemDivider, { key: 'ArrowRight' })
+    fireEvent.keyDown(solutionDivider, { key: 'ArrowLeft' })
+    expect(problemDivider).toHaveAttribute('aria-valuenow', '26')
+    expect(solutionDivider).toHaveAttribute('aria-valuenow', '44')
+
+    const layout = problemDivider.parentElement!
+    vi.spyOn(layout, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 1280,
+      bottom: 800,
+      width: 1280,
+      height: 800,
+      toJSON: () => ({}),
+    } as DOMRect)
+    fireEvent(problemDivider, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 300 }))
+    fireEvent(window, new MouseEvent('pointermove', { bubbles: true, clientX: 426 }))
+    fireEvent(window, new MouseEvent('pointerup', { bubbles: true, clientX: 426 }))
+    await waitFor(() => expect(problemDivider).toHaveAttribute('aria-valuenow', '36'))
   })
 
   it('shows a request error and prevents an empty-code request', async () => {
@@ -304,7 +359,7 @@ describe('Judge integration in the solver', () => {
 
     rejectPatch = true
     await user.click(screen.getByRole('button', { name: 'Remover dos favoritos' }))
-    expect(await screen.findByRole('status')).toHaveTextContent('Progresso indisponível.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Progresso indisponível.')
     expect(screen.getByRole('button', { name: 'Remover dos favoritos' })).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([request, requestInit]) => String(request).endsWith('/progress') && requestInit?.method === 'PATCH')).toHaveLength(2)
   })
@@ -342,7 +397,7 @@ describe('Judge integration in the solver', () => {
 
     failPatch = true
     await user.click(markedReview)
-    expect(await screen.findByRole('status')).toHaveTextContent('Editor offline.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Editor offline.')
     expect(screen.getByRole('button', { name: 'Revisão marcada' })).toBeInTheDocument()
   })
 })

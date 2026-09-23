@@ -93,6 +93,26 @@ const statusLabels: Record<ProgressStatus, string> = {
   REVIEW: 'Para revisar',
 }
 
+type SolvePanel = 'problem' | 'solution' | 'results'
+type SolveDivider = 'problem-solution' | 'solution-results'
+type SolveColumns = { problem: number; solution: number; results: number }
+
+function resizeSolveColumns(columns: SolveColumns, divider: SolveDivider, delta: number, availableWidth: number): SolveColumns {
+  const minProblem = 240 / availableWidth * 100
+  const minSolution = 360 / availableWidth * 100
+  const minResults = 280 / availableWidth * 100
+
+  if (divider === 'problem-solution') {
+    const pairWidth = columns.problem + columns.solution
+    const problem = Math.min(pairWidth - minSolution, Math.max(minProblem, columns.problem + delta))
+    return { ...columns, problem, solution: pairWidth - problem }
+  }
+
+  const pairWidth = columns.solution + columns.results
+  const solution = Math.min(pairWidth - minResults, Math.max(minSolution, columns.solution + delta))
+  return { ...columns, solution, results: pairWidth - solution }
+}
+
 export default function App() {
   const [activeView, setActiveView] = useState<View>('Dashboard')
   const [query, setQuery] = useState('')
@@ -168,7 +188,6 @@ export default function App() {
     }
 
     const syncError = failed ? 'Submissão concluída, mas não foi possível recarregar todo o progresso.' : null
-    if (syncError) setNotice({ kind: 'error', message: syncError })
     return syncError
   }, [refreshDashboard])
 
@@ -670,15 +689,18 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, progre
   onOpenHistory: () => void
   onSubmissionComplete: (problemId: string) => Promise<string | null>
 }) {
-  const [left, setLeft] = useState(46)
+  const [columns, setColumns] = useState<SolveColumns>({ problem: 24, solution: 48, results: 28 })
+  const [activePanel, setActivePanel] = useState<SolvePanel>('problem')
   const [code, setCode] = useState(problem.starterCode.java)
-  const [resizing, setResizing] = useState(false)
+  const [activeDivider, setActiveDivider] = useState<SolveDivider | null>(null)
   const [result, setResult] = useState<CodeExecutionResult | null>(null)
   const [resultAction, setResultAction] = useState<'Run' | 'Submit'>('Run')
   const [pendingAction, setPendingAction] = useState<'Run' | 'Submit' | null>(null)
   const [runnerError, setRunnerError] = useState<string | null>(null)
   const [syncingProgress, setSyncingProgress] = useState(false)
   const [progressSyncError, setProgressSyncError] = useState<string | null>(null)
+  const layoutRef = useRef<HTMLDivElement>(null)
+  const resizeStartRef = useRef<{ divider: SolveDivider; pointerX: number; columns: SolveColumns } | null>(null)
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -689,24 +711,71 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, progre
   }, [])
 
   useEffect(() => {
-    if (!resizing) return
-    const move = (event: PointerEvent) => setLeft(Math.min(68, Math.max(30, (event.clientX / window.innerWidth) * 100)))
-    const stop = () => setResizing(false)
+    if (!activeDivider) return
+    const move = (event: PointerEvent) => {
+      const start = resizeStartRef.current
+      const width = layoutRef.current?.getBoundingClientRect().width
+      if (!start || !width) return
+      const availableWidth = Math.max(width - 16, 1)
+      const pointerDelta = event.clientX - start.pointerX
+      if (!Number.isFinite(pointerDelta)) return
+      const delta = (pointerDelta / availableWidth) * 100
+      setColumns(resizeSolveColumns(start.columns, start.divider, delta, availableWidth))
+    }
+    const stop = () => {
+      resizeStartRef.current = null
+      setActiveDivider(null)
+    }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
     return () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
     }
-  }, [resizing])
+  }, [activeDivider])
+
+  const beginResize = (divider: SolveDivider, event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== undefined && event.button !== 0) return
+    event.preventDefault()
+    resizeStartRef.current = { divider, pointerX: event.clientX, columns }
+    setActiveDivider(divider)
+  }
+
+  const resizeFromKeyboard = (divider: SolveDivider, event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const key = event.key
+    const width = layoutRef.current?.getBoundingClientRect().width || window.innerWidth
+    const availableWidth = Math.max(width - 16, 1)
+
+    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+      const delta = key === 'ArrowRight' ? 2 : -2
+      setColumns((current) => resizeSolveColumns(current, divider, delta, availableWidth))
+      return
+    }
+
+    setColumns((current) => {
+      const isFirstDivider = divider === 'problem-solution'
+      const leadingWidth = isFirstDivider ? current.problem : current.solution
+      const pairWidth = isFirstDivider ? current.problem + current.solution : current.solution + current.results
+      const minLeading = (isFirstDivider ? 240 : 360) / availableWidth * 100
+      const minTrailing = (isFirstDivider ? 360 : 280) / availableWidth * 100
+      const targetWidth = key === 'Home' ? minLeading : pairWidth - minTrailing
+      return resizeSolveColumns(current, divider, targetWidth - leadingWidth, availableWidth)
+    })
+  }
 
   const execute = async (kind: 'Run' | 'Submit') => {
     if (pendingAction || syncingProgress) return
     if (!code.trim()) {
+      setActivePanel('results')
       setRunnerResultError('Digite uma solução antes de executar.')
       return
     }
 
+    setActivePanel('results')
     setPendingAction(kind)
     setResultAction(kind)
     setResult(null)
@@ -745,6 +814,14 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, progre
     setRunnerError(message)
   }
 
+  const availableWidth = Math.max((layoutRef.current?.getBoundingClientRect().width || window.innerWidth) - 16, 1)
+  const minProblemShare = 240 / availableWidth * 100
+  const minSolutionShare = 360 / availableWidth * 100
+  const minResultsShare = 280 / availableWidth * 100
+  const problemTrack = `minmax(240px, calc(${columns.problem}% - ${columns.problem * 0.16}px))`
+  const solutionTrack = `minmax(360px, calc(${columns.solution}% - ${columns.solution * 0.16}px))`
+  const resultsTrack = `minmax(280px, calc(${columns.results}% - ${columns.results * 0.16}px))`
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background" role="dialog" aria-modal="true" aria-labelledby="solve-title" onKeyDown={(event) => containDialogFocus(event, onClose)}>
       <header className="flex min-h-16 shrink-0 items-center justify-between gap-4 border-b border-border px-5 py-3">
@@ -770,9 +847,34 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, progre
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <article className="problem-description min-h-0 overflow-y-auto border-b border-border p-6 lg:border-b-0 lg:border-r lg:p-8" style={{ '--problem-width': `${left}%` } as React.CSSProperties}>
-          <div className="mx-auto max-w-xl">
+      <div className="grid shrink-0 grid-cols-3 gap-1 border-b border-border bg-card p-2 lg:hidden" role="group" aria-label="Painel exibido">
+        {([
+          ['problem', 'Enunciado'],
+          ['solution', 'Código'],
+          ['results', 'Resultado'],
+        ] as const).map(([panel, label]) => (
+          <button
+            key={panel}
+            type="button"
+            aria-pressed={activePanel === panel}
+            onClick={() => setActivePanel(panel)}
+            className={`min-h-11 rounded-md px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activePanel === panel ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div
+        ref={layoutRef}
+        className="flex min-h-0 flex-1 flex-col lg:grid"
+        style={{ gridTemplateColumns: `${problemTrack} 8px ${solutionTrack} 8px ${resultsTrack}` }}
+      >
+        <article
+          id="solve-problem-pane"
+          className={`${activePanel === 'problem' ? 'flex' : 'hidden'} min-h-0 min-w-0 flex-1 flex-col overflow-y-auto border-b border-border p-5 lg:flex lg:border-b-0 lg:p-6`}
+        >
+          <div className="mx-auto w-full max-w-xl">
             <div className="mb-5 flex flex-wrap items-center gap-3">
               <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium">{difficultyLabels[problem.difficulty]}</span>
               <span className="text-xs text-muted-foreground">{problem.categories.map(formatCategory).join(' · ')}</span>
@@ -794,27 +896,28 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, progre
 
         <div
           role="separator"
-          aria-label="Redimensionar painéis"
-          aria-valuemin={30}
-          aria-valuemax={68}
-          aria-valuenow={Math.round(left)}
+          aria-orientation="vertical"
+          aria-label="Redimensionar enunciado e código"
+          aria-controls="solve-problem-pane solve-code-pane"
+          aria-valuemin={Math.ceil(minProblemShare)}
+          aria-valuemax={Math.floor(100 - columns.results - minSolutionShare)}
+          aria-valuenow={Math.round(columns.problem)}
           tabIndex={0}
-          onPointerDown={() => setResizing(true)}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowLeft') setLeft((value) => Math.max(30, value - 3))
-            if (event.key === 'ArrowRight') setLeft((value) => Math.min(68, value + 3))
-            if (event.key === 'Home') setLeft(30)
-            if (event.key === 'End') setLeft(68)
-          }}
-          className="group hidden w-2 shrink-0 cursor-col-resize items-center justify-center bg-border/40 hover:bg-primary/40 lg:flex"
+          onPointerDown={(event) => beginResize('problem-solution', event)}
+          onKeyDown={(event) => resizeFromKeyboard('problem-solution', event)}
+          className="group hidden w-2 shrink-0 cursor-col-resize touch-none items-center justify-center bg-border/40 hover:bg-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:flex"
         >
           <span className="h-12 w-1 rounded-full bg-muted-foreground/40 group-hover:bg-primary" />
         </div>
 
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-card">
+        <section
+          id="solve-code-pane"
+          className={`${activePanel === 'solution' ? 'flex' : 'hidden'} min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-card lg:flex`}
+          aria-label="Editor Java"
+        >
           <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
             <span className="rounded-md bg-muted px-3 py-1.5 text-sm font-medium">Solução</span>
-              <span className="ml-auto font-mono text-xs text-muted-foreground">Java · {problem.hiddenTestCaseCount} casos ocultos</span>
+            <span className="ml-auto font-mono text-xs text-muted-foreground">Java · {problem.hiddenTestCaseCount} casos ocultos</span>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden bg-[#1e1e1e] p-1">
             <Editor
@@ -826,8 +929,31 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, progre
               options={{ automaticLayout: true, minimap: { enabled: false }, padding: { top: 16 }, fontSize: 14, tabSize: 4, scrollBeyondLastLine: false, readOnly: pendingAction !== null }}
             />
           </div>
-          <ExecutionResultPanel action={resultAction} result={result} pending={pendingAction !== null} error={runnerError} syncing={syncingProgress} syncError={progressSyncError} />
         </section>
+
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Redimensionar código e resultados"
+          aria-controls="solve-code-pane solve-results-pane"
+          aria-valuemin={Math.ceil(minSolutionShare)}
+          aria-valuemax={Math.floor(100 - columns.problem - minResultsShare)}
+          aria-valuenow={Math.round(columns.solution)}
+          tabIndex={0}
+          onPointerDown={(event) => beginResize('solution-results', event)}
+          onKeyDown={(event) => resizeFromKeyboard('solution-results', event)}
+          className="group hidden w-2 shrink-0 cursor-col-resize touch-none items-center justify-center bg-border/40 hover:bg-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:flex"
+        >
+          <span className="h-12 w-1 rounded-full bg-muted-foreground/40 group-hover:bg-primary" />
+        </div>
+
+        <aside
+          id="solve-results-pane"
+          className={`${activePanel === 'results' ? 'flex' : 'hidden'} min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex`}
+          aria-label="Resultado da execução"
+        >
+          <ExecutionResultPanel action={resultAction} result={result} pending={pendingAction !== null} error={runnerError} syncing={syncingProgress} syncError={progressSyncError} />
+        </aside>
       </div>
     </div>
   )

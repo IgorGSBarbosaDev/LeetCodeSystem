@@ -45,6 +45,9 @@ describe('ExecutionResultPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Alternar detalhes de Teste 1' }))
     expect(await screen.findByText(/"value": 1/)).toBeInTheDocument()
     expect(screen.getByText(/Saída esperada/i)).toBeInTheDocument()
+    const detailsGrid = screen.getByText('Entrada').parentElement?.parentElement
+    expect(detailsGrid).toHaveClass('grid', '@sm:grid-cols-2', '@lg:grid-cols-3')
+    expect(detailsGrid?.parentElement).toHaveClass('@container')
   })
 
   it('opens failed public tests and keeps passing tests compact', async () => {
@@ -77,9 +80,13 @@ describe('ExecutionResultPanel', () => {
 
     expect(screen.getByTestId('test-result-0')).toHaveTextContent(/"value": 1/)
     expect(screen.getByTestId('test-result-1')).not.toHaveTextContent(/"value": 2/)
+    expect(screen.getByRole('button', { name: 'Alternar detalhes de Teste 1' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: 'Alternar detalhes de Teste 2' })).toHaveAttribute('aria-expanded', 'false')
 
     await user.click(screen.getByRole('button', { name: 'Alternar detalhes de Teste 2' }))
     expect(screen.getByTestId('test-result-1')).toHaveTextContent(/"value": 2/)
+    expect(screen.getByRole('button', { name: 'Alternar detalhes de Teste 1' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: 'Alternar detalhes de Teste 2' })).toHaveAttribute('aria-expanded', 'true')
   })
 
   it('keeps the complete content of multiple expanded public tests', () => {
@@ -111,7 +118,8 @@ describe('ExecutionResultPanel', () => {
 
     expect(within(screen.getByTestId('test-result-0')).getByText('Saída recebida')).toBeInTheDocument()
     expect(within(screen.getByTestId('test-result-1')).getByText('Saída recebida')).toBeInTheDocument()
-    expect(screen.getByTestId('test-results-list')).toHaveClass('flex-1', 'overflow-y-auto')
+    expect(screen.getByTestId('execution-results-scroll')).toHaveClass('overflow-y-auto', 'overscroll-contain')
+    expect(screen.getByTestId('test-results-list')).not.toHaveClass('overflow-y-auto')
     expect([...screen.getByTestId('test-result-0').querySelectorAll('pre')].some((element) => element.className.includes('overflow-auto'))).toBe(false)
     expect([...screen.getByTestId('test-result-1').querySelectorAll('pre')].some((element) => element.className.includes('overflow-auto'))).toBe(false)
   })

@@ -108,12 +108,12 @@ function TestResultHeader({ test, open, onToggle }: { test: CodeExecutionResult[
     </>
   )
 
-  if (!onToggle) return <div className="flex min-h-14 items-center gap-3 px-4 py-3">{content}</div>
+  if (!onToggle) return <div className="flex min-h-14 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">{content}</div>
 
   return (
     <button
       type="button"
-      className="group flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      className="group flex min-h-14 w-full flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       aria-label={`Alternar detalhes de ${label}`}
       aria-expanded={open}
       onClick={onToggle}
@@ -140,10 +140,12 @@ function TestResult({ test }: { test: CodeExecutionResult['testResults'][number]
       <TestResultHeader test={test} open={open} onToggle={() => setOpen((value) => !value)} />
       {open && (
         <div className="border-t border-border px-4 py-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <ResultBlock label="Entrada" value={test.input} />
-            <ResultBlock label="Saída esperada" value={test.expectedOutput} />
-            <ResultBlock label="Saída recebida" value={test.actualOutput} />
+          <div className="@container">
+            <div className="grid gap-4 @sm:grid-cols-2 @lg:grid-cols-3">
+              <ResultBlock label="Entrada" value={test.input} />
+              <ResultBlock label="Saída esperada" value={test.expectedOutput} />
+              <ResultBlock label="Saída recebida" value={test.actualOutput} />
+            </div>
           </div>
 
           {test.error && (
@@ -214,7 +216,13 @@ function ResultSummary({ action, result }: { action: 'Run' | 'Submit'; result: C
 
 export default function ExecutionResultPanel({ action, result, pending, error, syncing, syncError }: ExecutionResultPanelProps) {
   return (
-    <div className={`flex min-h-0 shrink-0 flex-col overflow-hidden border-t border-border bg-muted/25 ${result ? 'h-[min(52vh,38rem)]' : 'max-h-[52vh]'}`} aria-live="polite">
+    <div
+      className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-muted/25"
+      aria-live="polite"
+      aria-label="Painel de resultados"
+      data-testid="execution-results-scroll"
+      tabIndex={0}
+    >
       <div className="flex shrink-0 items-center justify-between gap-4 px-4 py-3">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Resultado</p>
@@ -251,7 +259,7 @@ export default function ExecutionResultPanel({ action, result, pending, error, s
       )}
 
       {!pending && !error && result && (
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-4 pb-4">
+        <div className="flex shrink-0 flex-col gap-3 px-4 pb-4">
           <ResultSummary action={action} result={result} />
 
           {syncing && <p className="shrink-0 text-xs text-muted-foreground" role="status">Atualizando seu progresso...</p>}
@@ -261,7 +269,7 @@ export default function ExecutionResultPanel({ action, result, pending, error, s
           {result.runtimeError && <GlobalError label="Erro de execução" message={result.runtimeError} />}
 
           {result.testResults.length > 0 && (
-            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1" data-testid="test-results-list">
+            <div className="flex flex-col gap-2 pr-1" data-testid="test-results-list">
               <div className="flex shrink-0 items-center gap-3 px-1 py-1">
                 <p className="text-xs font-semibold text-foreground">Casos de teste</p>
                 <Separator className="flex-1" />

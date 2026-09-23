@@ -9,8 +9,8 @@
 
 ## Estrutura
 
-- `backend/`: Spring Boot, Java 21 no contrato do projeto, Spring Web, Spring Data JPA e validação.
-- `frontend/`: destino do React + TypeScript + Vite + Monaco + Tailwind; atualmente sem arquivos de implementação.
+- `backend/`: Spring Boot, Java 21 no contrato do projeto, Spring Web, Spring Data JPA, validação, SQLite e Java Runner.
+- `frontend/`: React + TypeScript + Vite + Monaco + Tailwind; consome a API local por meio do proxy do Vite.
 - `docs/`: documentação de produto e contratos funcionais.
 
 ## Desenvolvimento
@@ -20,12 +20,12 @@
 - Antes de declarar o sistema pronto, valide o fluxo real com SQLite e o Java Runner, incluindo timeout e limpeza de temporários.
 - Não assuma que testes estáticos comprovam compilação/execução de soluções do usuário ou comportamento no navegador.
 
-## Estado inicial conhecido
+## Estado atual do checkout
 
-- A raiz e os subdiretórios não possuem repositório Git configurado.
-- O backend é apenas o projeto gerado pelo Spring Initializr, sem entidades, endpoints ou runner.
-- O `contextLoads` atual falha porque JPA está ativo, mas ainda não há driver/configuração de banco de dados.
-- O frontend ainda não possui `package.json` nem código-fonte.
+- A raiz possui um repositório Git configurado; preserve alterações locais e não publique sem solicitação explícita.
+- O backend implementa importação validada de pacotes, catálogo, progresso, histórico, dashboard e execução Java.
+- O frontend implementa o dashboard, catálogo, importação, editor Java, resultados do judge e histórico.
+- `backend/leetcodesystem.db` é a base SQLite local e está excluída pelo `.gitignore`; trate-a como dado do usuário.
 
 ## Diretrizes de alteração
 

@@ -12,7 +12,6 @@ import {
   LayoutDashboard,
   ListChecks,
   Menu,
-  MoreHorizontal,
   Play,
   Search,
   Upload,
@@ -26,10 +25,12 @@ import { SubmissionHistoryPanel } from './components/SubmissionHistory'
 import SubmissionHistoryView from './components/SubmissionHistory'
 import { useDashboardData } from './hooks/useDashboardData'
 import { useProblemProgress } from './hooks/useProblemProgress'
+import { containDialogFocus } from './lib/utils'
 import type { CodeExecutionResult, Difficulty, PackageValidationResponse, ProblemDetails, ProblemSummary, ProgressStatus } from './types'
 
 type View = 'Dashboard' | 'Exercícios' | 'Favoritos' | 'Revisões' | 'Histórico'
 type DifficultyFilter = 'TODAS' | Difficulty
+type ProgressFilter = 'TODOS' | 'RESOLVIDOS' | 'PENDENTES'
 type Feedback = { kind: 'error' | 'success'; message: string; details?: string[] }
 
 const navItems: { label: View; icon: typeof LayoutDashboard }[] = [
@@ -96,12 +97,14 @@ export default function App() {
   const [activeView, setActiveView] = useState<View>('Dashboard')
   const [query, setQuery] = useState('')
   const [difficulty, setDifficulty] = useState<DifficultyFilter>('TODAS')
+  const [category, setCategory] = useState('TODAS')
+  const [progressFilter, setProgressFilter] = useState<ProgressFilter>('TODOS')
   const [problems, setProblems] = useState<ProblemSummary[]>([])
   const [selectedProblem, setSelectedProblem] = useState<ProblemDetails | null>(null)
   const [showImport, setShowImport] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<Feedback | null>(null)
   const [loadingProblems, setLoadingProblems] = useState(true)
   const [historyForProblem, setHistoryForProblem] = useState<string | null>(null)
   const {
@@ -116,12 +119,14 @@ export default function App() {
     document.title = 'LeetCodeSystem — Prática de algoritmos'
   }, [])
 
-  const loadProblems = useCallback(async () => {
+  const loadProblems = useCallback(async (): Promise<boolean> => {
     setLoadingProblems(true)
     try {
       setProblems(await fetchProblems())
+      return true
     } catch (error) {
-      setNotice(feedbackFromError(error, 'Não foi possível carregar os exercícios da API.').message)
+      setNotice(feedbackFromError(error, 'Não foi possível carregar os exercícios da API.'))
+      return false
     } finally {
       setLoadingProblems(false)
     }
@@ -132,7 +137,7 @@ export default function App() {
   }, [loadProblems])
 
   const handleProgressError = useCallback((error: unknown, fallback: string) => {
-    setNotice(feedbackFromError(error, fallback).message)
+    setNotice(feedbackFromError(error, fallback))
   }, [])
 
   const { pending: progressPending, update: updateProgress } = useProblemProgress({
@@ -163,7 +168,7 @@ export default function App() {
     }
 
     const syncError = failed ? 'Submissão concluída, mas não foi possível recarregar todo o progresso.' : null
-    if (syncError) setNotice(syncError)
+    if (syncError) setNotice({ kind: 'error', message: syncError })
     return syncError
   }, [refreshDashboard])
 
@@ -176,14 +181,24 @@ export default function App() {
         problem.title.toLocaleLowerCase('pt-BR').includes(normalizedQuery) ||
         problem.categories.some((category) => formatCategory(category).toLocaleLowerCase('pt-BR').includes(normalizedQuery))
       const matchesDifficulty = difficulty === 'TODAS' || problem.difficulty === difficulty
+      const matchesCategory = category === 'TODAS' || problem.categories.includes(category)
+      const matchesProgress = progressFilter === 'TODOS' ||
+        (progressFilter === 'RESOLVIDOS'
+          ? problem.progress.status === 'SOLVED'
+          : problem.progress.status !== 'SOLVED')
       const matchesView =
         activeView === 'Exercícios' ||
         (activeView === 'Favoritos' && problem.progress.favorite) ||
         (activeView === 'Revisões' && problem.progress.reviewRequired)
 
-      return matchesQuery && matchesDifficulty && matchesView
+      return matchesQuery && matchesDifficulty && matchesCategory && matchesProgress && matchesView
     })
-  }, [activeView, difficulty, problems, query])
+  }, [activeView, category, difficulty, problems, progressFilter, query])
+
+  const availableCategories = useMemo(() => {
+    const values = new Set(problems.flatMap((problem) => problem.categories))
+    return [...values].sort((left, right) => formatCategory(left).localeCompare(formatCategory(right), 'pt-BR'))
+  }, [problems])
 
   const openView = (view: View) => {
     setActiveView(view)
@@ -192,16 +207,24 @@ export default function App() {
 
   const handleImported = async (file: File) => {
     const result = await importProblemPackage(file)
-    await Promise.all([loadProblems(), refreshDashboard()])
     setShowImport(false)
-    setNotice(`${result.importedCount} exercício${result.importedCount === 1 ? '' : 's'} importado${result.importedCount === 1 ? '' : 's'} e persistido${result.importedCount === 1 ? '' : 's'} no SQLite.`)
+    setNotice({
+      kind: 'success',
+      message: `${result.importedCount} exercício${result.importedCount === 1 ? '' : 's'} importado${result.importedCount === 1 ? '' : 's'} e persistido${result.importedCount === 1 ? '' : 's'} no SQLite.`,
+    })
+    void Promise.allSettled([loadProblems(), refreshDashboard()]).then(([catalog, dashboardResult]) => {
+      const catalogFailed = catalog.status === 'rejected' || (catalog.status === 'fulfilled' && !catalog.value)
+      if (catalogFailed || dashboardResult.status === 'rejected') {
+        setNotice({ kind: 'error', message: 'Pacote importado com sucesso, mas a lista ou o dashboard não pôde ser atualizado. Atualize a tela para ver os dados novos.' })
+      }
+    })
   }
 
   const openProblem = async (problem: ProblemSummary) => {
     try {
       setSelectedProblem(await fetchProblem(problem.id))
     } catch (error) {
-      setNotice(feedbackFromError(error, 'Não foi possível carregar o exercício.').message)
+      setNotice(feedbackFromError(error, 'Não foi possível carregar o exercício.'))
     }
   }
 
@@ -216,14 +239,13 @@ export default function App() {
         <Navigation activeView={activeView} expanded={sidebarExpanded} onSelect={openView} />
         <div className="border-t border-border p-2">
           <div className="flex items-center gap-3 rounded-lg bg-muted p-3">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">
-              EU
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
+              <Code2 className="size-4" aria-hidden="true" />
             </div>
             <div className={`min-w-0 flex-1 ${sidebarExpanded ? '' : 'sr-only'}`}>
-              <p className="truncate text-sm font-medium">Estudo local</p>
-              <p className="truncate text-xs text-muted-foreground">Java</p>
+              <p className="truncate text-sm font-medium">Execução local</p>
+              <p className="truncate text-xs text-muted-foreground">Java · SQLite</p>
             </div>
-            <MoreHorizontal className={`size-4 text-muted-foreground ${sidebarExpanded ? '' : 'sr-only'}`} />
           </div>
         </div>
       </aside>
@@ -244,7 +266,7 @@ export default function App() {
         <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border px-5 py-3 md:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <button
-              className="rounded-lg p-2 hover:bg-muted lg:hidden"
+              className="flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-muted lg:hidden"
               aria-label="Abrir menu"
               onClick={() => setMobileMenuOpen(true)}
             >
@@ -255,7 +277,7 @@ export default function App() {
           </div>
           <button
             onClick={() => setShowImport(true)}
-            className="flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+            className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
           >
             <Upload className="size-4" />
             <span className="hidden sm:inline">Importar exercícios</span>
@@ -264,7 +286,7 @@ export default function App() {
         </header>
 
         <div className="mx-auto max-w-[1400px] p-5 md:p-8">
-          {notice && <Notice message={notice} onDismiss={() => setNotice(null)} />}
+          {notice && <Notice feedback={notice} onDismiss={() => setNotice(null)} />}
           {loadingProblems ? (
             <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground" role="status">Carregando exercícios...</div>
           ) : activeView === 'Dashboard' ? (
@@ -273,7 +295,7 @@ export default function App() {
               loading={dashboardLoading}
               refreshing={dashboardRefreshing}
               error={dashboardError}
-              onRetry={() => void refreshDashboard().catch((error) => setNotice(feedbackFromError(error, 'Não foi possível atualizar o dashboard.').message))}
+              onRetry={() => void refreshDashboard().catch((error) => setNotice(feedbackFromError(error, 'Não foi possível atualizar o dashboard.')))}
               problems={problems}
               onOpenExercises={() => openView('Exercícios')}
               onOpenFavorites={() => openView('Favoritos')}
@@ -293,6 +315,11 @@ export default function App() {
               onQueryChange={setQuery}
               difficulty={difficulty}
               onDifficultyChange={setDifficulty}
+              category={category}
+              onCategoryChange={setCategory}
+              categories={availableCategories}
+              progressFilter={progressFilter}
+              onProgressFilterChange={setProgressFilter}
               onSelect={openProblem}
               onToggleFavorite={(problem) => void updateProgress(problem.id, { favorite: !problem.progress.favorite })}
               onToggleReview={(problem) => void updateProgress(problem.id, { reviewRequired: !problem.progress.reviewRequired })}
@@ -357,12 +384,20 @@ function Navigation({ activeView, expanded, onSelect }: { activeView: View; expa
   )
 }
 
-function Notice({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+function Notice({ feedback, onDismiss }: { feedback: Feedback; onDismiss: () => void }) {
+  const error = feedback.kind === 'error'
   return (
-    <div className="mb-6 flex items-start gap-3 rounded-xl border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground" role="status">
-      <AlertCircle className="mt-0.5 size-4 shrink-0" />
-      <p className="flex-1">{message}</p>
-      <button className="rounded-md p-1 hover:bg-muted" onClick={onDismiss} aria-label="Fechar aviso">
+    <div className={`mb-6 flex items-start gap-3 rounded-xl border px-4 py-3 text-sm ${error ? 'border-destructive/40 bg-destructive/[0.04] text-destructive' : 'border-border bg-muted/50 text-foreground'}`} role={error ? 'alert' : 'status'}>
+      {error ? <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" /> : <Check className="mt-0.5 size-4 shrink-0" aria-hidden="true" />}
+      <div className="min-w-0 flex-1">
+        <p>{feedback.message}</p>
+        {feedback.details && feedback.details.length > 0 && (
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-xs">
+            {feedback.details.map((detail) => <li key={detail}>{detail}</li>)}
+          </ul>
+        )}
+      </div>
+      <button type="button" className="flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-muted md:size-8" onClick={onDismiss} aria-label="Fechar aviso">
         <X className="size-4" />
       </button>
     </div>
@@ -376,6 +411,11 @@ function Exercises({
   onQueryChange,
   difficulty,
   onDifficultyChange,
+  category,
+  onCategoryChange,
+  categories,
+  progressFilter,
+  onProgressFilterChange,
   onSelect,
   onToggleFavorite,
   onToggleReview,
@@ -387,6 +427,11 @@ function Exercises({
   onQueryChange: (value: string) => void
   difficulty: DifficultyFilter
   onDifficultyChange: (value: DifficultyFilter) => void
+  category: string
+  onCategoryChange: (value: string) => void
+  categories: string[]
+  progressFilter: ProgressFilter
+  onProgressFilterChange: (value: ProgressFilter) => void
   onSelect: (problem: ProblemSummary) => void
   onToggleFavorite: (problem: ProblemSummary) => void
   onToggleReview: (problem: ProblemSummary) => void
@@ -394,6 +439,11 @@ function Exercises({
 }) {
   const heading = activeView === 'Exercícios' ? 'Exercícios' : activeView
   const description = activeView === 'Favoritos' ? 'Acesse rapidamente os exercícios que você marcou.' : activeView === 'Revisões' ? 'Retome os exercícios que precisam de mais uma tentativa.' : 'Pratique, acompanhe e melhore suas habilidades.'
+  const emptyDescription = activeView === 'Favoritos'
+    ? 'Marque exercícios com o coração ou ajuste a busca e os filtros para encontrar seus favoritos.'
+    : activeView === 'Revisões'
+      ? 'Marque exercícios para revisão ou ajuste a busca e os filtros para encontrar os itens pendentes.'
+      : 'Ajuste a busca ou os filtros para encontrar outros exercícios.'
 
   return (
     <div className="flex flex-col gap-6">
@@ -402,31 +452,54 @@ function Exercises({
         <p className="mt-2 text-muted-foreground">{description}</p>
       </div>
 
-      <div className="flex flex-col gap-3 md:flex-row">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Buscar por título ou categoria..."
-            aria-label="Buscar exercícios"
-            className="h-10 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-          />
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 md:flex-row">
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="Buscar por título ou categoria..."
+              aria-label="Buscar exercícios"
+              className="h-11 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring md:h-10"
+            />
+          </div>
+          <div className="flex h-11 shrink-0 items-center gap-2 rounded-lg border border-input px-3 text-sm text-muted-foreground md:h-10">
+            <Filter className="size-4" aria-hidden="true" />
+            <span>{problems.length} resultado{problems.length === 1 ? '' : 's'}</span>
+          </div>
         </div>
-        <select
-          value={difficulty}
-          onChange={(event) => onDifficultyChange(event.target.value as DifficultyFilter)}
-          aria-label="Filtrar por dificuldade"
-          className="h-10 rounded-lg border border-input bg-card px-3 text-sm"
-        >
-          <option value="TODAS">Todas as dificuldades</option>
-          <option value="EASY">Easy</option>
-          <option value="MEDIUM">Medium</option>
-          <option value="HARD">Hard</option>
-        </select>
-        <div className="flex h-10 items-center justify-center gap-2 rounded-lg border border-input px-3 text-sm text-muted-foreground">
-          <Filter className="size-4" />
-          <span>{problems.length} resultado{problems.length === 1 ? '' : 's'}</span>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <select
+            value={difficulty}
+            onChange={(event) => onDifficultyChange(event.target.value as DifficultyFilter)}
+            aria-label="Filtrar por dificuldade"
+            className="h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-sm md:h-10"
+          >
+            <option value="TODAS">Todas as dificuldades</option>
+            <option value="EASY">Easy</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="HARD">Hard</option>
+          </select>
+          <select
+            value={category}
+            onChange={(event) => onCategoryChange(event.target.value)}
+            aria-label="Filtrar por categoria"
+            className="h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-sm md:h-10"
+          >
+            <option value="TODAS">Todas as categorias</option>
+            {categories.map((value) => <option key={value} value={value}>{formatCategory(value)}</option>)}
+          </select>
+          <select
+            value={progressFilter}
+            onChange={(event) => onProgressFilterChange(event.target.value as ProgressFilter)}
+            aria-label="Filtrar por progresso"
+            className="h-11 w-full min-w-0 rounded-lg border border-input bg-card px-3 text-sm md:h-10"
+          >
+            <option value="TODOS">Todos os status</option>
+            <option value="RESOLVIDOS">Resolvidos</option>
+            <option value="PENDENTES">Não resolvidos</option>
+          </select>
         </div>
       </div>
 
@@ -441,7 +514,7 @@ function Exercises({
             <span className="text-right">Ações</span>
           </div>
           {problems.map((problem) => (
-            <div key={problem.id} className="grid grid-cols-[32px_1fr_auto] items-center gap-3 border-b border-border px-5 py-4 last:border-0 hover:bg-muted/40 md:grid-cols-[44px_1.6fr_100px_1.2fr_110px_80px] md:gap-4">
+            <div key={problem.id} className="grid grid-cols-[20px_minmax(0,1fr)_auto_92px] items-center gap-3 border-b border-border px-5 py-4 last:border-0 hover:bg-muted/40 md:grid-cols-[44px_1.6fr_100px_1.2fr_110px_80px] md:gap-4">
               <span className={`flex size-5 items-center justify-center rounded-full border ${problem.progress.status === 'SOLVED' ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`} title={statusLabels[problem.progress.status]}>
                 {problem.progress.status === 'SOLVED' && <Check className="size-3" />}
               </span>
@@ -452,10 +525,10 @@ function Exercises({
               <span className="hidden truncate text-xs text-muted-foreground md:block">{problem.categories.map(formatCategory).join(' · ')}</span>
               <span className="hidden text-xs text-muted-foreground md:block">{statusLabels[problem.progress.status]}</span>
               <div className="flex items-center justify-end gap-1">
-                <button disabled={progressPending[problem.id] === true} onClick={() => onToggleFavorite(problem)} className="rounded-md p-2 hover:bg-muted disabled:cursor-wait disabled:opacity-50" aria-label={`${problem.progress.favorite ? 'Remover dos' : 'Adicionar aos'} favoritos`}>
+                <button type="button" disabled={progressPending[problem.id] === true} onClick={() => onToggleFavorite(problem)} className="flex size-11 items-center justify-center rounded-md hover:bg-muted disabled:cursor-wait disabled:opacity-50 md:size-8" aria-label={`${problem.progress.favorite ? 'Remover dos' : 'Adicionar aos'} favoritos`} aria-pressed={problem.progress.favorite}>
                   <Heart className={`size-4 ${problem.progress.favorite ? 'fill-current' : ''}`} />
                 </button>
-                <button disabled={progressPending[problem.id] === true} onClick={() => onToggleReview(problem)} className="hidden rounded-md p-2 hover:bg-muted disabled:cursor-wait disabled:opacity-50 sm:block" aria-label={`${problem.progress.reviewRequired ? 'Remover da' : 'Marcar para'} revisão`}>
+                <button type="button" disabled={progressPending[problem.id] === true} onClick={() => onToggleReview(problem)} className="flex size-11 items-center justify-center rounded-md hover:bg-muted disabled:cursor-wait disabled:opacity-50 md:size-8" aria-label={`${problem.progress.reviewRequired ? 'Remover da' : 'Marcar para'} revisão`} aria-pressed={problem.progress.reviewRequired}>
                   <BookOpen className={`size-4 ${problem.progress.reviewRequired ? 'fill-current' : ''}`} />
                 </button>
               </div>
@@ -463,7 +536,7 @@ function Exercises({
           ))}
         </div>
       ) : (
-        <EmptyState title="Nenhum exercício encontrado" description="Ajuste a busca ou os filtros para encontrar outros exercícios." />
+        <EmptyState title="Nenhum exercício encontrado" description={emptyDescription} />
       )}
     </div>
   )
@@ -485,12 +558,19 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (fi
   const [validation, setValidation] = useState<PackageValidationResponse | null>(null)
   const [validating, setValidating] = useState(false)
   const [importing, setImporting] = useState(false)
+  const validationRequest = useRef(0)
+
+  useEffect(() => () => {
+    validationRequest.current += 1
+  }, [])
 
   const handleFile = async (file: File | undefined) => {
-    if (!file) return
+    if (!file || importing) return
+    const requestId = ++validationRequest.current
     setSelectedFile(file)
     setFeedback(null)
     setValidation(null)
+    setValidating(false)
 
     if (file.size > 5 * 1024 * 1024) {
       setFeedback({ kind: 'error', message: 'O arquivo excede o limite máximo de 5 MiB.' })
@@ -500,12 +580,15 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (fi
     setValidating(true)
     try {
       const validated = await validateProblemPackage(file)
+      if (requestId !== validationRequest.current) return
       setValidation(validated)
       setFeedback({ kind: 'success', message: `${validated.problemCount} exercício${validated.problemCount === 1 ? '' : 's'} validado${validated.problemCount === 1 ? '' : 's'}. Confirme para persistir no SQLite.` })
     } catch (error) {
-      setFeedback(feedbackFromError(error, 'Não foi possível validar o pacote.'))
+      if (requestId === validationRequest.current) {
+        setFeedback(feedbackFromError(error, 'Não foi possível validar o pacote.'))
+      }
     } finally {
-      setValidating(false)
+      if (requestId === validationRequest.current) setValidating(false)
     }
   }
 
@@ -522,21 +605,21 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (fi
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="import-title">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-foreground/40 p-4" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-xl border border-border bg-card p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="import-title" aria-describedby="import-description" onKeyDown={(event) => containDialogFocus(event, onClose)}>
         <div className="mb-6 flex justify-between gap-4">
           <div>
             <h2 id="import-title" className="text-lg font-semibold">Importar exercícios</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Valide um pacote no formato do PRD antes de adicioná-lo à sessão.</p>
+            <p id="import-description" className="mt-1 text-sm text-muted-foreground">Valide um pacote no formato do PRD antes de adicioná-lo à sessão.</p>
           </div>
-          <button onClick={onClose} aria-label="Fechar importação" className="shrink-0 rounded-md p-1 hover:bg-muted"><X className="size-5 text-muted-foreground" /></button>
+          <button autoFocus onClick={onClose} aria-label="Fechar importação" className="flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-muted md:size-8"><X className="size-5 text-muted-foreground" /></button>
         </div>
 
-        <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-10 text-center hover:bg-muted/60">
+        <label className={`flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-10 text-center ${importing ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-muted/60'}`}>
           <FileJson className="size-8 text-muted-foreground" />
           <span className="text-sm font-medium">{selectedFile ? selectedFile.name : 'Selecione um arquivo JSON'}</span>
           <span className="text-xs text-muted-foreground">schemaVersion 1.0</span>
-          <input type="file" accept="application/json,.json" className="sr-only" onChange={(event) => handleFile(event.target.files?.[0])} />
+          <input type="file" accept="application/json,.json" className="sr-only" disabled={importing} onChange={(event) => handleFile(event.target.files?.[0])} />
         </label>
 
         {feedback && (
@@ -568,8 +651,8 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (fi
 
         <p className="mt-4 text-xs leading-5 text-muted-foreground">A validação é feita pelo backend antes de qualquer gravação. A confirmação reenvia o mesmo arquivo e repete a validação dentro do fluxo de importação.</p>
         <div className="mt-6 flex justify-end gap-3">
-          <button disabled={validating || importing} onClick={onClose} className="rounded-lg px-4 py-2 text-sm hover:bg-muted disabled:opacity-40">Cancelar</button>
-          <button disabled={!validation || validating || importing} onClick={() => void handleImport()} className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40">
+          <button disabled={validating || importing} onClick={onClose} className="min-h-11 rounded-lg px-4 py-2 text-sm hover:bg-muted disabled:opacity-40">Cancelar</button>
+          <button disabled={!validation || validating || importing} onClick={() => void handleImport()} className="min-h-11 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40">
             {importing ? 'Importando...' : 'Importar pacote'}
           </button>
         </div>
@@ -663,18 +746,18 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, progre
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+    <div className="fixed inset-0 z-50 flex flex-col bg-background" role="dialog" aria-modal="true" aria-labelledby="solve-title" onKeyDown={(event) => containDialogFocus(event, onClose)}>
       <header className="flex min-h-16 shrink-0 items-center justify-between gap-4 border-b border-border px-5 py-3">
         <div className="flex min-w-0 items-center gap-3">
-          <button onClick={onClose} className="rounded-lg p-2 hover:bg-muted" aria-label="Fechar exercício"><X className="size-5" /></button>
+          <button autoFocus onClick={onClose} className="flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-muted md:size-9" aria-label="Fechar exercício"><X className="size-5" /></button>
           <span className="hidden text-sm text-muted-foreground sm:inline">Exercícios /</span>
           <span className="truncate text-sm font-medium">{problem.title}</span>
         </div>
         <div className="flex items-center gap-2">
-          <button disabled={progressPending} onClick={onToggleReview} className={`hidden rounded-lg border border-border px-3 py-2 text-sm disabled:cursor-wait disabled:opacity-50 sm:flex ${problem.progress.reviewRequired ? 'bg-secondary' : ''}`}>
+          <button type="button" disabled={progressPending} onClick={onToggleReview} aria-pressed={problem.progress.reviewRequired} className={`hidden rounded-lg border border-border px-3 py-2 text-sm disabled:cursor-wait disabled:opacity-50 sm:flex ${problem.progress.reviewRequired ? 'bg-secondary' : ''}`}>
             <BookOpen className="mr-2 size-4" />{problem.progress.reviewRequired ? 'Revisão marcada' : 'Revisar'}
           </button>
-          <button disabled={progressPending} onClick={onToggleFavorite} className={`hidden rounded-lg border border-border px-3 py-2 text-sm disabled:cursor-wait disabled:opacity-50 sm:flex ${problem.progress.favorite ? 'bg-secondary' : ''}`}>
+          <button type="button" disabled={progressPending} onClick={onToggleFavorite} aria-pressed={problem.progress.favorite} className={`hidden rounded-lg border border-border px-3 py-2 text-sm disabled:cursor-wait disabled:opacity-50 sm:flex ${problem.progress.favorite ? 'bg-secondary' : ''}`}>
             <Heart className={`mr-2 size-4 ${problem.progress.favorite ? 'fill-current' : ''}`} />Favoritar
           </button>
           <button onClick={onOpenHistory} aria-label="Histórico" className="flex items-center rounded-lg border border-border px-3 py-2 text-sm"><Clock3 className="size-4 sm:mr-2" /><span className="hidden sm:inline">Histórico</span></button>
@@ -694,7 +777,7 @@ function SolveModal({ problem, onClose, onToggleFavorite, onToggleReview, progre
               <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium">{difficultyLabels[problem.difficulty]}</span>
               <span className="text-xs text-muted-foreground">{problem.categories.map(formatCategory).join(' · ')}</span>
             </div>
-            <h1 className="text-3xl font-semibold tracking-tight">{problem.title}</h1>
+            <h1 id="solve-title" className="text-3xl font-semibold tracking-tight">{problem.title}</h1>
             <p className="mt-6 whitespace-pre-line leading-7 text-muted-foreground">{problem.description}</p>
             {problem.examples.map((example, index) => (
               <div key={`${example.input}-${index}`}>

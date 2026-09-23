@@ -168,7 +168,7 @@ function BreakdownCard({ title, subtitle, icon, children }: { title: string; sub
 }
 
 function ProgressRow({ label, solved, total, percentage }: { label: string; solved: number; total: number; percentage: number }) {
-  return <div><div className="mb-2 flex justify-between text-sm"><span className="font-medium">{label}</span><span className="text-muted-foreground">{solved} / {total}</span></div><div className="h-2 overflow-hidden rounded-full bg-muted" aria-label={`${percentage}% resolvido`}><div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${percentage}%` }} /></div></div>
+  return <div><div className="mb-2 flex justify-between text-sm"><span className="font-medium">{label}</span><span className="text-muted-foreground">{solved} / {total}</span></div><div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={`${label} resolvidos`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-valuetext={`${solved} de ${total} resolvidos (${percentage}%)`}><div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${percentage}%` }} /></div></div>
 }
 
 function RecentSubmission({ submission, onOpenProblem }: { submission: SubmissionSummary; onOpenProblem: (problemId: string) => void }) {
@@ -180,5 +180,5 @@ function EmptyText({ children }: { children: React.ReactNode }) {
 }
 
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return <div className="rounded-xl border border-border bg-card p-5"><div className="mb-4 flex justify-between"><span className="text-sm text-muted-foreground">{label}</span><ArrowUpRight className="size-4 text-muted-foreground" /></div><p className="text-2xl font-semibold">{value}</p><p className="mt-1 text-xs text-muted-foreground">{detail}</p></div>
+  return <div className="rounded-xl border border-border bg-card p-5"><div className="mb-4 text-sm text-muted-foreground">{label}</div><p className="text-2xl font-semibold">{value}</p><p className="mt-1 text-xs text-muted-foreground">{detail}</p></div>
 }
